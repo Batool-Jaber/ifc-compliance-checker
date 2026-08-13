@@ -1,0 +1,17 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# PyCharm
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated / reference IFC files (large binary files — regenerate instead of tracking)
+data/generated/*.ifc
+data/revit_reference/*.ifc
