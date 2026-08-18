@@ -1,56 +1,53 @@
 """
 generate_ifc.py
 ================
-Generates a small IFC4 model containing exactly:
-- 1 IfcBuilding
-- 1 IfcBuildingStorey
-- 1 enclosed IfcSpace (room)
-- 4 IfcWall
-- 1 IfcWindow (installed via a proper IfcOpeningElement)
+Generates a small IFC4 model: 1 building, 1 storey, 1 enclosed room
+(IfcSpace), 4 walls, 1 window installed via a proper IfcOpeningElement.
 
-PART 1: Project -> Site -> Building -> Storey skeleton.
-PART 2: 4 walls forming a closed rectangle around the room.
-PART 3: IfcSpace (room) with explicit NetFloorArea quantity.
-PART 4+5: IfcOpeningElement cut into a wall, filled by an IfcWindow.
+Now PARAMETERIZED so the same script produces all 3 required test
+fixtures (compliant / violation / missing-data) by passing different
+CLI arguments -- no code duplication, no separate scripts per scenario.
+
+Usage examples:
+    # Compliant model (defaults satisfy all 3 rules)
+    python generate_ifc.py --output data/generated/compliant_model.ifc
+
+    # Violation model: room area below 12 m^2 (rule 1 fails)
+    python generate_ifc.py --room-width 3.0 --room-length 3.0 \
+        --output data/generated/violation_model.ifc
+
+    # Missing-data model: window with no opening relationship and no
+    # quantities at all (simulates the exact Revit export failure mode)
+    python generate_ifc.py --missing-data \
+        --output data/generated/missing_data_model.ifc
 """
 
+import argparse
 import os
+
 import ifcopenshell
 import ifcopenshell.api
 import numpy as np
 
-# ---- Room / wall dimensions (single source of truth for this script) ----
-ROOM_WIDTH = 4.0    # metres (interior, X direction)
-ROOM_LENGTH = 3.5   # metres (interior, Y direction)  -> 14.0 m^2
-WALL_HEIGHT = 3.0    # metres
-WALL_THICKNESS = 0.2  # metres
-
-# ---- Window dimensions (installed in Wall_South, centered) ----
-WINDOW_WIDTH = 1.5   # metres  -> area = 1.8 m^2 (12.86% of 14.0 m^2, passes >=10% rule)
-WINDOW_HEIGHT = 1.2  # metres
-SILL_HEIGHT = 0.9    # metres  -> passes the 0.80-1.10 m rule
-
-# ---- Output location ----
-OUTPUT_DIR = os.path.join("data", "generated")
-OUTPUT_PATH = os.path.join(OUTPUT_DIR, "compliant_model.ifc")
+# ---- Default dimensions (produce the original compliant model) ----
+DEFAULT_ROOM_WIDTH = 4.0
+DEFAULT_ROOM_LENGTH = 3.5
+DEFAULT_WALL_HEIGHT = 3.0
+DEFAULT_WALL_THICKNESS = 0.2
+DEFAULT_WINDOW_WIDTH = 1.5
+DEFAULT_WINDOW_HEIGHT = 1.2
+DEFAULT_SILL_HEIGHT = 0.9
 
 
 def create_skeleton():
-    """
-    PART 1: Build the base IFC hierarchy.
-    Project -> Site -> Building -> Storey, all linked with
-    IfcRelAggregates, and SI units (metres) set on the project.
-    """
+    """PART 1: Project -> Site -> Building -> Storey, SI units in metres."""
     model = ifcopenshell.file(schema="IFC4")
 
     project = ifcopenshell.api.run(
         "root.create_entity", model,
         ifc_class="IfcProject", name="IFC Compliance Checker - Sample Project"
     )
-    ifcopenshell.api.run(
-        "unit.assign_unit", model,
-        length={"is_metric": True, "raw": "METERS"}
-    )
+    ifcopenshell.api.run("unit.assign_unit", model, length={"is_metric": True, "raw": "METERS"})
 
     site = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcSite", name="Sample Site")
     building = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcBuilding", name="Sample Building")
@@ -64,10 +61,7 @@ def create_skeleton():
 
 
 def create_geometric_contexts(model):
-    """
-    Required once per model: defines the 3D 'Model' context and the
-    'Body' sub-context that wall/window geometry is expressed in.
-    """
+    """Required once per model: 3D 'Model' context + 'Body' sub-context."""
     model3d = ifcopenshell.api.run("context.add_context", model, context_type="Model")
     body = ifcopenshell.api.run(
         "context.add_context", model,
@@ -77,19 +71,13 @@ def create_geometric_contexts(model):
     return body
 
 
-def make_wall(model, body_context, storey, name, length, position, rotation_deg):
-    """
-    Creates one IfcWall with a rectangular extrusion, placed and rotated
-    in world space, and assigns it to the given storey.
-
-    position: [x, y, z] of the wall's start point (its local origin)
-    rotation_deg: rotation around Z axis (0 = wall runs along +X)
-    """
+def make_wall(model, body_context, storey, name, length, height, thickness, position, rotation_deg):
+    """Creates one IfcWall with a rectangular extrusion, placed/rotated in world space."""
     wall = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWall", name=name)
 
     representation = ifcopenshell.api.run(
         "geometry.add_wall_representation", model,
-        context=body_context, length=length, height=WALL_HEIGHT, thickness=WALL_THICKNESS
+        context=body_context, length=length, height=height, thickness=thickness
     )
     ifcopenshell.api.run("geometry.assign_representation", model, product=wall, representation=representation)
 
@@ -103,153 +91,200 @@ def make_wall(model, body_context, storey, name, length, position, rotation_deg)
     ifcopenshell.api.run("geometry.edit_object_placement", model, product=wall, matrix=matrix)
 
     ifcopenshell.api.run("spatial.assign_container", model, products=[wall], relating_structure=storey)
-
     return wall
 
 
-def create_walls(model, body_context, storey):
-    """
-    PART 2: Build 4 walls forming a closed rectangle.
-    Wall centerlines are offset outward by half the wall thickness so
-    that the ENCLOSED INTERIOR is exactly ROOM_WIDTH x ROOM_LENGTH.
-    """
-    half_t = WALL_THICKNESS / 2
+def create_walls(model, body_context, storey, room_width, room_length, wall_height, wall_thickness):
+    """PART 2: 4 walls forming a closed rectangle; interior = room_width x room_length."""
+    half_t = wall_thickness / 2
 
     walls = {
         "south": make_wall(
             model, body_context, storey, "Wall_South",
-            length=ROOM_WIDTH + WALL_THICKNESS,
+            length=room_width + wall_thickness, height=wall_height, thickness=wall_thickness,
             position=[-half_t, -half_t, 0.0], rotation_deg=0
         ),
         "north": make_wall(
             model, body_context, storey, "Wall_North",
-            length=ROOM_WIDTH + WALL_THICKNESS,
-            position=[-half_t, ROOM_LENGTH + half_t, 0.0], rotation_deg=0
+            length=room_width + wall_thickness, height=wall_height, thickness=wall_thickness,
+            position=[-half_t, room_length + half_t, 0.0], rotation_deg=0
         ),
         "west": make_wall(
             model, body_context, storey, "Wall_West",
-            length=ROOM_LENGTH + WALL_THICKNESS,
+            length=room_length + wall_thickness, height=wall_height, thickness=wall_thickness,
             position=[-half_t, -half_t, 0.0], rotation_deg=90
         ),
         "east": make_wall(
             model, body_context, storey, "Wall_East",
-            length=ROOM_LENGTH + WALL_THICKNESS,
-            position=[ROOM_WIDTH + half_t, -half_t, 0.0], rotation_deg=90
+            length=room_length + wall_thickness, height=wall_height, thickness=wall_thickness,
+            position=[room_width + half_t, -half_t, 0.0], rotation_deg=90
         ),
     }
     return walls
 
 
-def create_room(model, body_context, storey):
-    """
-    PART 3: Build the IfcSpace (room) representing the enclosed area
-    inside the 4 walls, and give it an explicit, reliable
-    NetFloorArea quantity (Qto_SpaceBaseQuantities).
-
-    NOTE: unlike IfcWall (a physical element -> spatial.assign_container),
-    IfcSpace is itself a SPATIAL structure element, so it is linked to
-    the storey via aggregate.assign_object (same relation type used for
-    Project->Site->Building->Storey).
-    """
+def create_room(model, body_context, storey, room_width, room_length, wall_thickness):
+    """PART 3: IfcSpace with explicit NetFloorArea quantity."""
     space = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcSpace", name="Room_101")
 
     representation = ifcopenshell.api.run(
         "geometry.add_wall_representation", model,
-        context=body_context, length=ROOM_WIDTH, height=0.01, thickness=ROOM_LENGTH
+        context=body_context, length=room_width, height=0.01, thickness=room_length
     )
     ifcopenshell.api.run("geometry.assign_representation", model, product=space, representation=representation)
 
-    # Position matches the interior bounds established by the walls in Part 2
-    half_t = WALL_THICKNESS / 2
+    half_t = wall_thickness / 2
     matrix = np.eye(4)
     matrix[:3, 3] = [-half_t, half_t, 0.0]
     ifcopenshell.api.run("geometry.edit_object_placement", model, product=space, matrix=matrix)
 
     ifcopenshell.api.run("aggregate.assign_object", model, products=[space], relating_object=storey)
 
-    # Explicit, reliable quantity (this is what our extraction script will read later)
     qty_set = ifcopenshell.api.run("pset.add_qto", model, product=space, name="Qto_SpaceBaseQuantities")
     ifcopenshell.api.run(
         "pset.edit_qto", model, qto=qty_set,
-        properties={"NetFloorArea": ROOM_WIDTH * ROOM_LENGTH}
+        properties={"NetFloorArea": room_width * room_length}
     )
 
     return space
 
 
-def create_window_in_wall(model, body_context, storey, host_wall):
+def create_window_in_wall(model, body_context, storey, host_wall, room_width, wall_thickness,
+                           window_width, window_height, sill_height, missing_data=False):
     """
     PART 4 + 5: Cut an IfcOpeningElement into host_wall, then create an
-    IfcWindow that fills that opening. This is the standard IFC pattern:
+    IfcWindow filling that opening.
 
-        IfcWall --[IfcRelVoidsElement]--> IfcOpeningElement
-                                                |
-                                     [IfcRelFillsElement]
-                                                v
-                                            IfcWindow
-
-    This explicit opening (missing entirely in the Revit export we
-    investigated earlier) is what makes sill-height extraction reliable.
-
-    The opening/window is centered along Wall_South's length and placed
-    at world Z = SILL_HEIGHT, cutting through the full wall thickness.
+    If missing_data=True, the window is created WITHOUT the opening
+    relationship and WITHOUT explicit quantities -- reproducing the
+    exact Revit-export failure mode (window placed with no
+    IfcRelVoidsElement / IfcRelFillsElement at all), so extraction and
+    validation can be tested against genuinely incomplete data.
     """
-    half_t = WALL_THICKNESS / 2
-    wall_length = ROOM_WIDTH + WALL_THICKNESS
-    opening_x = -half_t + (wall_length - WINDOW_WIDTH) / 2
+    half_t = wall_thickness / 2
+    wall_length = room_width + wall_thickness
+    win_x = -half_t + (wall_length - window_width) / 2
+
+    matrix = np.eye(4)
+    matrix[:3, 3] = [win_x, -half_t, sill_height]
+
+    if missing_data:
+        # Window exists and is placed, but with NO opening cut into the
+        # wall, NO fill relationship, and NO quantity set -- everything
+        # sill-height/area extraction depends on is absent by design.
+        window = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWindow", name="Window_Orphan")
+        window_rep = ifcopenshell.api.run(
+            "geometry.add_wall_representation", model,
+            context=body_context, length=window_width, height=window_height, thickness=wall_thickness
+        )
+        ifcopenshell.api.run("geometry.assign_representation", model, product=window, representation=window_rep)
+        ifcopenshell.api.run("geometry.edit_object_placement", model, product=window, matrix=matrix)
+        ifcopenshell.api.run("spatial.assign_container", model, products=[window], relating_structure=storey)
+        return None, window
 
     # --- PART 4: the opening ---
     opening = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcOpeningElement", name="Opening_1")
     opening_rep = ifcopenshell.api.run(
         "geometry.add_wall_representation", model,
-        context=body_context, length=WINDOW_WIDTH, height=WINDOW_HEIGHT, thickness=WALL_THICKNESS
+        context=body_context, length=window_width, height=window_height, thickness=wall_thickness
     )
     ifcopenshell.api.run("geometry.assign_representation", model, product=opening, representation=opening_rep)
-
-    matrix = np.eye(4)
-    matrix[:3, 3] = [opening_x, -half_t, SILL_HEIGHT]
     ifcopenshell.api.run("geometry.edit_object_placement", model, product=opening, matrix=matrix)
-
     ifcopenshell.api.run("feature.add_feature", model, feature=opening, element=host_wall)
 
     # --- PART 5: the window filling the opening ---
     window = ifcopenshell.api.run("root.create_entity", model, ifc_class="IfcWindow", name="Window_1")
     window_rep = ifcopenshell.api.run(
         "geometry.add_wall_representation", model,
-        context=body_context, length=WINDOW_WIDTH, height=WINDOW_HEIGHT, thickness=WALL_THICKNESS
+        context=body_context, length=window_width, height=window_height, thickness=wall_thickness
     )
     ifcopenshell.api.run("geometry.assign_representation", model, product=window, representation=window_rep)
     ifcopenshell.api.run("geometry.edit_object_placement", model, product=window, matrix=matrix)
-
     ifcopenshell.api.run("spatial.assign_container", model, products=[window], relating_structure=storey)
     ifcopenshell.api.run("feature.add_filling", model, opening=opening, element=window)
 
-    # Explicit, reliable window quantities (Width / Height / Area)
     qty_set = ifcopenshell.api.run("pset.add_qto", model, product=window, name="Qto_WindowBaseQuantities")
     ifcopenshell.api.run(
         "pset.edit_qto", model, qto=qty_set,
-        properties={"Width": WINDOW_WIDTH, "Height": WINDOW_HEIGHT, "Area": WINDOW_WIDTH * WINDOW_HEIGHT}
+        properties={"Width": window_width, "Height": window_height, "Area": window_width * window_height}
     )
 
     return opening, window
 
 
-if __name__ == "__main__":
+def generate_model(
+    output_path,
+    room_width=DEFAULT_ROOM_WIDTH,
+    room_length=DEFAULT_ROOM_LENGTH,
+    wall_height=DEFAULT_WALL_HEIGHT,
+    wall_thickness=DEFAULT_WALL_THICKNESS,
+    window_width=DEFAULT_WINDOW_WIDTH,
+    window_height=DEFAULT_WINDOW_HEIGHT,
+    sill_height=DEFAULT_SILL_HEIGHT,
+    missing_data=False,
+):
+    """
+    Top-level entry point. Builds a full model with the given
+    parameters and writes it to output_path. Returns a summary dict
+    for logging/printing.
+    """
     model, project, site, building, storey = create_skeleton()
     body_context = create_geometric_contexts(model)
-    walls = create_walls(model, body_context, storey)
-    room = create_room(model, body_context, storey)
-    opening, window = create_window_in_wall(model, body_context, storey, walls["south"])
+    walls = create_walls(model, body_context, storey, room_width, room_length, wall_height, wall_thickness)
+    room = create_room(model, body_context, storey, room_width, room_length, wall_thickness)
+    opening, window = create_window_in_wall(
+        model, body_context, storey, walls["south"], room_width, wall_thickness,
+        window_width, window_height, sill_height, missing_data=missing_data
+    )
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    model.write(OUTPUT_PATH)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    model.write(output_path)
 
-    print(f"[OK] Model written to {OUTPUT_PATH}")
-    print(f"  Project : {project.Name}")
-    print(f"  Site    : {site.Name}")
-    print(f"  Building: {building.Name}")
-    print(f"  Storey  : {storey.Name}")
-    print(f"  Walls   : {list(walls.keys())} ({len(model.by_type('IfcWall'))} total)")
-    print(f"  Room    : {room.Name} (NetFloorArea = {ROOM_WIDTH * ROOM_LENGTH} m^2)")
-    print(f"  Window  : {window.Name} ({WINDOW_WIDTH}m x {WINDOW_HEIGHT}m = {WINDOW_WIDTH * WINDOW_HEIGHT} m^2, sill={SILL_HEIGHT}m)")
-    print(f"  Opening : {opening.Name} (voids {walls['south'].Name}, filled by {window.Name})")
+    return {
+        "output_path": output_path,
+        "room_area_m2": room_width * room_length,
+        "window_area_m2": window_width * window_height,
+        "sill_height_m": None if missing_data else sill_height,
+        "missing_data": missing_data,
+        "wall_count": len(model.by_type("IfcWall")),
+    }
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate a parameterized IFC compliance-checker test model.")
+    parser.add_argument("--output", default="data/generated/compliant_model.ifc", help="Output .ifc file path")
+    parser.add_argument("--room-width", type=float, default=DEFAULT_ROOM_WIDTH)
+    parser.add_argument("--room-length", type=float, default=DEFAULT_ROOM_LENGTH)
+    parser.add_argument("--wall-height", type=float, default=DEFAULT_WALL_HEIGHT)
+    parser.add_argument("--wall-thickness", type=float, default=DEFAULT_WALL_THICKNESS)
+    parser.add_argument("--window-width", type=float, default=DEFAULT_WINDOW_WIDTH)
+    parser.add_argument("--window-height", type=float, default=DEFAULT_WINDOW_HEIGHT)
+    parser.add_argument("--sill-height", type=float, default=DEFAULT_SILL_HEIGHT)
+    parser.add_argument(
+        "--missing-data", action="store_true",
+        help="Create a window with NO opening relationship and NO quantities (simulates incomplete IFC data)."
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+
+    summary = generate_model(
+        output_path=args.output,
+        room_width=args.room_width,
+        room_length=args.room_length,
+        wall_height=args.wall_height,
+        wall_thickness=args.wall_thickness,
+        window_width=args.window_width,
+        window_height=args.window_height,
+        sill_height=args.sill_height,
+        missing_data=args.missing_data,
+    )
+
+    print(f"[OK] Model written to {summary['output_path']}")
+    print(f"  Room area   : {summary['room_area_m2']} m^2")
+    print(f"  Window area : {summary['window_area_m2']} m^2")
+    print(f"  Sill height : {summary['sill_height_m']}")
+    print(f"  Missing data mode : {summary['missing_data']}")
+    print(f"  Walls       : {summary['wall_count']}")
