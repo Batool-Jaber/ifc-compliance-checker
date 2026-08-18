@@ -15,3 +15,7 @@ Thumbs.db
 # Generated / reference IFC files (large binary files — regenerate instead of tracking)
 data/generated/*.ifc
 data/revit_reference/*.ifc
+
+# Generated reports and test fixtures (regeneratable)
+reports/*.json
+tests/fixtures/*.ifc
