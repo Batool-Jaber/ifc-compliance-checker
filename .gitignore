@@ -19,3 +19,4 @@ data/revit_reference/*.ifc
 # Generated reports and test fixtures (regeneratable)
 reports/*.json
 tests/fixtures/*.ifc
+
