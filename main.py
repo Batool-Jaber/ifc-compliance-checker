@@ -12,14 +12,21 @@ human-readable rule text attached to each condition (--retrieval-method):
 See rag/compare_retrieval.py for a head-to-head accuracy comparison of
 the two methods.
 
-In EITHER case, RAG only supplies the rule TEXT for citation -- it has
-zero influence on calculated_value/required_value/status, which come
-entirely from validation/deterministic_checks.py's pure-Python
+Optionally (--narrate) attaches a natural-language "narration" string
+per condition using a LOCAL LLM (rag/llm_narration.py, via Ollama). The
+LLM ONLY rephrases -- it has zero ability to change status, and the
+original deterministic `explanation` is always preserved unchanged
+alongside it.
+
+In ALL cases, RAG/LLM only supply text for citation/explanation -- they
+have zero influence on calculated_value/required_value/status, which
+come entirely from validation/deterministic_checks.py's pure-Python
 arithmetic.
 
 Usage:
     python main.py data/generated/compliant_model.ifc
     python main.py data/generated/violation_model.ifc --retrieval-method embeddings
+    python main.py data/generated/compliant_model.ifc --narrate
 """
 
 import argparse
@@ -35,6 +42,7 @@ from validation.deterministic_checks import run_all_checks
 from rag.chunking import load_and_chunk
 from rag.retriever import retrieve as keyword_retrieve
 from rag.vector_store import build_index, search as embedding_search
+from rag.llm_narration import narrate
 
 CONDITION_TO_QUERY = {
     "Minimum Room Area": "what is the minimum room area",
@@ -55,7 +63,7 @@ def _retrieve_rule_text(query: str, retrieval_method: str, chunks: list, index: 
     return results[0]["title"], results[0]["text"]
 
 
-def run_pipeline(ifc_path: str, retrieval_method: str = "keyword") -> dict:
+def run_pipeline(ifc_path: str, retrieval_method: str = "keyword", narrate_results: bool = False) -> dict:
     """
     Runs the full pipeline against one IFC file and returns a single
     combined compliance report dict.
@@ -73,6 +81,12 @@ def run_pipeline(ifc_path: str, retrieval_method: str = "keyword") -> dict:
         result["rule_source"] = rule_source
         result["rule_text"] = rule_text
 
+        # Narration is purely additive: "explanation" (deterministic) is
+        # never modified or removed. status is set above by run_all_checks
+        # and is never touched again anywhere below this point.
+        if narrate_results:
+            result["narration"] = narrate(result)
+
     statuses = [r["status"] for r in check_results]
     if "FAIL" in statuses:
         overall = "FAIL"
@@ -85,6 +99,7 @@ def run_pipeline(ifc_path: str, retrieval_method: str = "keyword") -> dict:
         "source_file": ifc_path,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "retrieval_method": retrieval_method,
+        "narrated": narrate_results,
         "room": extracted["room"],
         "window": extracted["window"],
         "conditions": check_results,
@@ -108,6 +123,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run the IFC compliance-checking pipeline.")
     parser.add_argument("ifc_path", nargs="?", default="data/generated/compliant_model.ifc")
     parser.add_argument("--retrieval-method", choices=["keyword", "embeddings"], default="keyword")
+    parser.add_argument("--narrate", action="store_true", help="Attach LLM-generated natural-language narration per condition (requires Ollama running locally).")
     parser.add_argument("--output", default=None)
     parser.add_argument("--quiet", action="store_true")
     return parser.parse_args()
@@ -116,10 +132,10 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    report = run_pipeline(args.ifc_path, retrieval_method=args.retrieval_method)
+    report = run_pipeline(args.ifc_path, retrieval_method=args.retrieval_method, narrate_results=args.narrate)
     output_path = args.output or default_report_path(args.ifc_path)
     saved_path = save_report(report, output_path)
 
     if not args.quiet:
         print(json.dumps(report, indent=2, ensure_ascii=False))
-    print(f"\n[OK] Report saved to {saved_path}  (method: {args.retrieval_method}, overall_result: {report['overall_result']})", file=sys.stderr)
+    print(f"\n[OK] Report saved to {saved_path}  (method: {args.retrieval_method}, narrated: {args.narrate}, overall_result: {report['overall_result']})", file=sys.stderr)
