@@ -132,7 +132,15 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    report = run_pipeline(args.ifc_path, retrieval_method=args.retrieval_method, narrate_results=args.narrate)
+    try:
+        report = run_pipeline(args.ifc_path, retrieval_method=args.retrieval_method, narrate_results=args.narrate)
+    except FileNotFoundError:
+        print(f"[ERROR] IFC file not found: '{args.ifc_path}'", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"[ERROR] Failed to process IFC file '{args.ifc_path}': {e}", file=sys.stderr)
+        sys.exit(1)
+
     output_path = args.output or default_report_path(args.ifc_path)
     saved_path = save_report(report, output_path)
 
