@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IFC Compliance Checker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<header class="title-block">
+  <div class="title-block__mark">IFC</div>
+  <div class="title-block__text">
+    <h1>Compliance Checker</h1>
+    <p>Room area &middot; Window ratio &middot; Sill height &mdash; validated deterministically</p>
+  </div>
+</header>
+
+<main class="sheet">
+
+  <section class="panel" id="model-panel">
+    <h2>Model</h2>
+    <div class="scenario-row">
+      <button class="scenario-btn" data-scenario="compliant" data-active="true">
+        <span class="scenario-btn__dot dot-pass"></span> Compliant
+      </button>
+      <button class="scenario-btn" data-scenario="violation">
+        <span class="scenario-btn__dot dot-fail"></span> Violation
+      </button>
+      <button class="scenario-btn" data-scenario="missing_data">
+        <span class="scenario-btn__dot dot-na"></span> Missing Data
+      </button>
+      <button class="scenario-btn" data-scenario="custom">
+        <span class="scenario-btn__dot dot-custom"></span> Custom
+      </button>
+    </div>
+
+    <div class="custom-form" id="custom-form" hidden>
+      <div class="custom-form__grid">
+        <div class="input-field">
+          <label for="custom-room-width">Room width (m)</label>
+          <input type="number" id="custom-room-width" class="mono" value="4.0" min="0.1" step="0.1">
+        </div>
+        <div class="input-field">
+          <label for="custom-room-length">Room length (m)</label>
+          <input type="number" id="custom-room-length" class="mono" value="3.5" min="0.1" step="0.1">
+        </div>
+        <div class="input-field">
+          <label for="custom-window-width">Window width (m)</label>
+          <input type="number" id="custom-window-width" class="mono" value="1.5" min="0.1" step="0.1">
+        </div>
+        <div class="input-field">
+          <label for="custom-window-height">Window height (m)</label>
+          <input type="number" id="custom-window-height" class="mono" value="1.2" min="0.1" step="0.1">
+        </div>
+        <div class="input-field input-field--full">
+          <label for="custom-sill-height">Sill height (m)</label>
+          <input type="number" id="custom-sill-height" class="mono" value="0.9" min="0" step="0.05">
+        </div>
+      </div>
+      <div class="custom-form__preview mono" id="custom-preview"></div>
+    </div>
+
+    <div class="upload-row">
+      <label class="btn btn--secondary upload-label" for="file-upload">
+        <svg viewBox="0 0 24 24" class="icon"><path d="M12 4v12m0-12l-4 4m4-4l4 4M4 20h16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Upload IFC File
+      </label>
+      <input type="file" id="file-upload" accept=".ifc" hidden>
+      <span class="upload-filename" id="upload-filename"></span>
+    </div>
+    <div class="model-status" id="model-status">No model generated yet.</div>
+    <button class="btn btn--secondary" id="generate-btn">
+      <svg viewBox="0 0 24 24" class="icon"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      Generate New Model
+    </button>
+  </section>
+
+  <section class="panel" id="options-panel">
+    <h2>Options</h2>
+
+    <div class="field">
+      <span class="field__label">Retrieval method</span>
+      <div class="toggle-group" id="retrieval-toggle">
+        <button class="toggle-opt" data-value="keyword" data-active="true">Keyword</button>
+        <button class="toggle-opt" data-value="embeddings">Embeddings</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="field__label">LLM narration</span>
+      <label class="switch">
+        <input type="checkbox" id="narrate-switch">
+        <span class="switch__track"><span class="switch__thumb"></span></span>
+      </label>
+      <span class="field__hint" id="narrate-hint">Off &mdash; results use the deterministic explanation only.</span>
+    </div>
+
+    <button class="btn btn--primary" id="run-btn" disabled>
+      <svg viewBox="0 0 24 24" class="icon"><path d="M6 4l14 8-14 8V4z" fill="currentColor"/></svg>
+      Run Compliance Check
+    </button>
+  </section>
+
+  <section class="panel panel--wide" id="loading-panel" hidden>
+    <div class="loader"></div>
+    <p id="loading-text">Checking compliance&hellip;</p>
+  </section>
+
+  <section class="panel panel--wide" id="data-panel" hidden>
+    <h2>Extracted Data</h2>
+    <div class="data-grid">
+      <div class="data-figures">
+        <div class="figure">
+          <span class="figure__label">Room area</span>
+          <span class="figure__value mono" id="room-area">&mdash;</span>
+        </div>
+        <div class="figure">
+          <span class="figure__label">Window area</span>
+          <span class="figure__value mono" id="window-area">&mdash;</span>
+        </div>
+        <div class="figure">
+          <span class="figure__label">Sill height</span>
+          <span class="figure__value mono" id="sill-height">&mdash;</span>
+        </div>
+      </div>
+      <div class="diagram-wrap">
+        <svg id="diagram" viewBox="0 0 480 260" role="img" aria-label="Room and window diagram"></svg>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel panel--wide" id="results-panel" hidden>
+    <h2>Conditions</h2>
+    <div class="condition-cards" id="condition-cards"></div>
+    <div class="overall-badge" id="overall-badge"></div>
+  </section>
+
+  <section class="panel panel--wide" id="report-panel" hidden>
+    <div class="panel__header-row">
+      <h2>Full Report</h2>
+      <div class="toggle-group" id="report-view-toggle">
+        <button class="toggle-opt" data-value="table" data-active="true">Table</button>
+        <button class="toggle-opt" data-value="json">Raw JSON</button>
+      </div>
+    </div>
+    <table class="report-table" id="report-table"></table>
+    <pre class="report-json" id="report-json" hidden></pre>
+  </section>
+
+  <section class="panel panel--wide" id="compare-panel">
+    <div class="panel__header-row">
+      <h2>Retrieval Comparison <span class="optional-tag">optional</span></h2>
+      <button class="btn btn--ghost" id="compare-btn">Run Comparison</button>
+    </div>
+    <div id="compare-result"></div>
+  </section>
+
+</main>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
