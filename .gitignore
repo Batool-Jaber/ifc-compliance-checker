@@ -20,3 +20,6 @@ data/revit_reference/*.ifc
 reports/*.json
 tests/fixtures/*.ifc
 
+# Uploaded IFC files (user-provided, not part of the repo's test fixtures)
+data/uploaded/*.ifc
+
