@@ -18,6 +18,7 @@ with pure Python arithmetic, and produces a compliance report: **PASS**,
 - [Architecture](#architecture)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Web Interface](#web-interface)
 - [Libraries & Models Used](#libraries--models-used)
 - [Assumptions & Limitations](#assumptions--limitations)
 
@@ -148,6 +149,43 @@ python rag/compare_retrieval.py
 
 ---
 
+## Web Interface
+
+A responsive Flask web UI is available as a thin, visual layer over the
+same pipeline used by the CLI (`app.py` calls `main.run_pipeline()`,
+`generate_ifc.generate_model()`, and `rag.compare_retrieval.
+run_comparison()` directly — no logic is duplicated).
+
+```bash
+# Flask is already listed in requirements.txt
+python app.py
+```
+
+Then open **http://localhost:5000** in a browser.
+
+> On Windows machines with Application Control / WDAC policies, if
+> `pip install`/`pip freeze` is blocked, use `python -m pip install ...`
+> / `python -m pip freeze ...` instead — the same workaround already
+> needed elsewhere in this project (see the `pytest` note above).
+
+### What the interface provides
+
+| Section | Description |
+|---|---|
+| **Model Selector** | Four scenarios: **Compliant**, **Violation**, **Missing Data**, and **Custom** |
+| **Custom scenario** | A form to type in your own `room_width`, `room_length`, `window_width`, `window_height`, and `sill_height`, with a **live client-side preview** that color-codes each value green/red against the same thresholds used by `validation/deterministic_checks.py`, before you even click Generate |
+| **File upload** | Upload your own `.ifc` file (e.g. an external or Revit-exported model) to run the pipeline against it instead of a generated preset |
+| **Options Panel** | Toggle retrieval method (Keyword / Embeddings) and switch LLM narration on or off — narration shows an explicit loading indicator, since the local LLM can take a few seconds to respond |
+| **Extracted Data + Diagram** | Room and window figures alongside a live SVG diagram (floor plan + window-wall elevation showing sill height), with a graceful "N/A" state when data is missing |
+| **Conditions Results** | Color-coded PASS / FAIL / CANNOT_BE_EVALUATED cards, each showing the deterministic `explanation` and — when narration is on — the LLM's `narration` side by side |
+| **Full Report** | Rendered as a proper table by default, with a toggle to view the raw JSON |
+| **Retrieval Comparison** *(optional)* | A collapsible panel that runs `rag/compare_retrieval.py` on demand and displays keyword vs. embeddings accuracy |
+
+The interface is fully responsive: the two-column layout collapses to a
+single, stacked column on narrower screens.
+
+---
+
 ## Libraries & Models Used
 
 | Library / Model | Purpose |
@@ -157,6 +195,7 @@ python rag/compare_retrieval.py
 | [sentence-transformers](https://www.sbert.net/) (`all-MiniLM-L6-v2`) | Local embedding model for the RAG embeddings-based retrieval path |
 | [pytest](https://pytest.org/) | Automated test suite |
 | [Ollama](https://ollama.com/) + `qwen2.5:7b` | Local LLM for optional natural-language narration (`--narrate`) |
+| [Flask](https://flask.palletsprojects.com/) | Lightweight web server for the optional browser-based UI (`app.py`) |
 
 > **No external/paid APIs are used anywhere in this project.** Both the
 > embeddings model and the narration LLM run entirely locally — the
