@@ -46,6 +46,33 @@ def retrieve(query: str, chunks: list[dict], top_k: int = 1) -> list[dict]:
     return [chunk for score, chunk in scored[:top_k] if score > 0]
 
 
+def explain(query: str, chunks: list[dict]) -> list[dict]:
+    """
+    Same scoring logic as retrieve(), but returns full transparency
+    detail for every chunk: its score AND exactly which query keywords
+    actually matched (in title or body). Used by the web UI's
+    "Retrieval Process" panel to show *why* a rule was picked, not
+    just *that* it was picked. Does not change any decision logic --
+    read-only/diagnostic.
+    """
+    query_words = _keywords(query)
+
+    results = []
+    for chunk in chunks:
+        title_words = _keywords(chunk["title"])
+        body_words = _keywords(chunk["text"])
+        matched = sorted(query_words & (title_words | body_words))
+
+        title_overlap = len(query_words & title_words)
+        body_overlap = len(query_words & body_words)
+        score = (title_overlap * TITLE_WEIGHT) + (body_overlap * BODY_WEIGHT)
+
+        results.append({"chunk": chunk, "score": score, "matched_keywords": matched})
+
+    results.sort(key=lambda r: r["score"], reverse=True)
+    return results
+
+
 if __name__ == "__main__":
     chunks = load_and_chunk()
 
