@@ -169,6 +169,8 @@ python demo_llm_cannot_override.py
 
 ## Web Interface
 
+![Web Interface screenshot](data/Screenshot/home.png)
+
 A responsive Flask web UI is available as a thin, visual layer over the
 same pipeline used by the CLI (`app.py` calls `main.run_pipeline()`,
 `generate_ifc.generate_model()`, `rag.compare_retrieval.run_comparison()`,
