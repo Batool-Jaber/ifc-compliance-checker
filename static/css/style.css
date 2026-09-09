@@ -392,3 +392,15 @@ body {
 }
 .status-toast[data-kind="success"] { background: var(--green-light); color: var(--green); border: 1px solid var(--green); }
 .status-toast[data-kind="error"] { background: var(--red-light); color: var(--red); border: 1px solid var(--red); }
+
+
+/* ---------- Retrieval method explanation box ---------- */
+.retrieval-explain-box {
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: var(--blue-light);
+  border-left: 3px solid var(--blue);
+  border-radius: var(--radius);
+  font-size: 0.83rem;
+  line-height: 1.6;
+}

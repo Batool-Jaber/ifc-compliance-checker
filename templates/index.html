@@ -84,14 +84,24 @@
   <section class="panel" id="options-panel">
     <h2>Options</h2>
 
-    <div class="field">
-      <span class="field__label">Retrieval method</span>
-      <div class="toggle-group" id="retrieval-toggle">
-        <button class="toggle-opt" data-value="keyword" data-active="true">Keyword</button>
-        <button class="toggle-opt" data-value="embeddings">Embeddings</button>
-      </div>
-    </div>
+ <div class="field">
+  <span class="field__label">Retrieval method</span>
+  <div class="toggle-group" id="retrieval-toggle">
+    <button class="toggle-opt" data-value="keyword" data-active="true">Keyword</button>
+    <button class="toggle-opt" data-value="embeddings">Embeddings</button>
+  </div>
+</div>
 
+<div class="field">
+  <span class="field__label">Show retrieval method explanation</span>
+  <label class="switch">
+    <input type="checkbox" id="retrieval-explain-switch">
+    <span class="switch__track"><span class="switch__thumb"></span></span>
+  </label>
+  <div class="retrieval-explain-box" id="retrieval-explain-box" hidden></div>
+</div>
+
+    
     <div class="field">
       <span class="field__label">LLM narration</span>
       <label class="switch">
