@@ -18,6 +18,9 @@
   </div>
 </header>
 
+<div class="error-banner" id="error-banner" hidden></div>
+<div class="status-toast" id="status-toast" hidden></div>
+
 <main class="sheet">
 
   <section class="panel" id="model-panel">
@@ -104,7 +107,7 @@
     </button>
   </section>
 
-  <section class="panel panel--wide" id="loading-panel" hidden>
+  <section class="panel panel--wide no-print" id="loading-panel" hidden>
     <div class="loader"></div>
     <p id="loading-text">Checking compliance&hellip;</p>
   </section>
@@ -138,19 +141,48 @@
     <div class="overall-badge" id="overall-badge"></div>
   </section>
 
+  <section class="panel panel--wide no-print" id="retrieval-panel" hidden>
+    <h2>Retrieval Process <span class="optional-tag">this run</span></h2>
+    <p class="ask-hint">
+      How each condition's rule was retrieved using the active method
+      (<span id="active-method-label" class="mono"></span>).
+    </p>
+    <div class="retrieval-cards" id="retrieval-cards"></div>
+
+    <h3 class="retrieval-compare__title">Keyword vs. Embeddings &mdash; both methods, this run</h3>
+    <table class="compare-table" id="retrieval-compare-table"></table>
+  </section>
+
   <section class="panel panel--wide" id="report-panel" hidden>
     <div class="panel__header-row">
       <h2>Full Report</h2>
-      <div class="toggle-group" id="report-view-toggle">
-        <button class="toggle-opt" data-value="table" data-active="true">Table</button>
-        <button class="toggle-opt" data-value="json">Raw JSON</button>
+      <div class="report-actions no-print">
+        <div class="toggle-group" id="report-view-toggle">
+          <button class="toggle-opt" data-value="table" data-active="true">Table</button>
+          <button class="toggle-opt" data-value="json">Raw JSON</button>
+        </div>
+        <button class="btn btn--ghost" id="print-btn">Print</button>
+        <button class="btn btn--ghost" id="export-csv-btn">Export CSV</button>
       </div>
     </div>
     <table class="report-table" id="report-table"></table>
     <pre class="report-json" id="report-json" hidden></pre>
   </section>
 
-  <section class="panel panel--wide" id="compare-panel">
+  <section class="panel panel--wide no-print" id="ask-panel" hidden>
+    <h2>Ask About This Report</h2>
+    <p class="ask-hint">Grounded in this report's results and the retrieved building rules — cannot change the decision above.</p>
+    <div class="ask-row">
+      <input type="text" id="ask-input" placeholder="e.g. Why did the room area fail? What could I change?">
+      <button class="btn btn--primary ask-btn" id="ask-btn">
+        <svg viewBox="0 0 24 24" class="icon"><path d="M6 4l14 8-14 8V4z" fill="currentColor"/></svg>
+        Ask
+      </button>
+    </div>
+    <div class="ask-answer" id="ask-answer" hidden></div>
+  </section>
+
+  <section class="panel panel--wide no-print" id="compare-panel">
     <div class="panel__header-row">
       <h2>Retrieval Comparison <span class="optional-tag">optional</span></h2>
       <button class="btn btn--ghost" id="compare-btn">Run Comparison</button>

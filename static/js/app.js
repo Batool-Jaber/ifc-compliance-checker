@@ -8,6 +8,29 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+function showError(message) {
+  const banner = $("error-banner");
+  banner.textContent = message;
+  banner.hidden = false;
+}
+function clearError() {
+  $("error-banner").hidden = true;
+}
+
+function showToast(message, kind = "success") {
+  const toast = $("status-toast");
+  toast.textContent = message;
+  toast.dataset.kind = kind;
+  toast.hidden = false;
+  toast.style.opacity = "1";
+
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => {
+    toast.style.opacity = "0";
+    setTimeout(() => { toast.hidden = true; }, 300);
+  }, 3000);
+}
+
 // ---------- Model selector ----------
 document.querySelectorAll(".scenario-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -58,6 +81,7 @@ function updateCustomPreview() {
 CUSTOM_FIELD_IDS.forEach((id) => $(id).addEventListener("input", updateCustomPreview));
 
 $("generate-btn").addEventListener("click", async () => {
+  clearError();
   $("model-status").textContent = "Generating…";
 
   const body = { scenario: state.scenario };
@@ -88,12 +112,15 @@ $("generate-btn").addEventListener("click", async () => {
     state.ifcPath = data.ifc_path;
     $("model-status").textContent = `Generated: ${data.ifc_path}  (room ${data.summary.room_area_m2} m², window ${data.summary.window_area_m2} m², walls ${data.summary.wall_count})`;
     $("run-btn").disabled = false;
+    showToast("✓ Model generated successfully.", "success");
   } catch (err) {
     $("model-status").textContent = `Error: ${err.message}`;
+    showToast(`✗ ${err.message}`, "error");
   }
 });
 
 $("file-upload").addEventListener("change", async (e) => {
+  clearError();
   const file = e.target.files[0];
   if (!file) return;
 
@@ -114,8 +141,10 @@ $("file-upload").addEventListener("change", async (e) => {
 
     document.querySelectorAll(".scenario-btn").forEach((b) => b.dataset.active = "false");
     $("custom-form").hidden = true;
+    showToast("✓ File uploaded successfully.", "success");
   } catch (err) {
     $("upload-filename").textContent = `Error: ${err.message}`;
+    showToast(`✗ ${err.message}`, "error");
   }
 });
 
@@ -138,8 +167,9 @@ $("narrate-switch").addEventListener("change", (e) => {
 // ---------- Run pipeline ----------
 $("run-btn").addEventListener("click", async () => {
   if (!state.ifcPath) return;
+  clearError();
 
-  ["data-panel", "results-panel", "report-panel"].forEach((id) => $(id).hidden = true);
+  ["data-panel", "results-panel", "report-panel", "retrieval-panel", "ask-panel"].forEach((id) => $(id).hidden = true);
   $("loading-panel").hidden = false;
   $("loading-text").textContent = state.narrate
     ? "Running checks and waiting for the local LLM to narrate results…"
@@ -160,11 +190,14 @@ $("run-btn").addEventListener("click", async () => {
 
     state.lastReport = report;
     renderReport(report);
+    await loadRetrievalProcess();
+    showToast("✓ Compliance check complete — results are ready below.", "success");
   } catch (err) {
-    $("loading-text").textContent = `Error: ${err.message}`;
-    return;
+    showError(`Run failed: ${err.message}`);
+    showToast("✗ Run failed — see the error message above.", "error");
+  } finally {
+    $("loading-panel").hidden = true;
   }
-  $("loading-panel").hidden = true;
 });
 
 // ---------- Rendering ----------
@@ -175,6 +208,7 @@ function renderReport(report) {
   $("data-panel").hidden = false;
   $("results-panel").hidden = false;
   $("report-panel").hidden = false;
+  $("ask-panel").hidden = false;
 }
 
 function fmt(value, unit = "") {
@@ -285,6 +319,80 @@ $("report-view-toggle").addEventListener("click", (e) => {
   $("report-json").hidden = !isJson;
 });
 
+// ---------- Print & CSV export ----------
+$("print-btn").addEventListener("click", () => window.print());
+
+$("export-csv-btn").addEventListener("click", () => {
+  if (!state.lastReport) return;
+  const conditions = state.lastReport.conditions || [];
+
+  const header = ["Condition", "Status", "Calculated", "Required", "Rule Source", "Explanation"];
+  const rows = conditions.map((c) => [
+    c.condition, c.status, c.calculated_value, c.required_value, c.rule_source || "", c.explanation || "",
+  ]);
+
+  const csv = [header, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "compliance_report.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// ---------- Retrieval Process panel ----------
+async function loadRetrievalProcess() {
+  try {
+    const res = await fetch("/api/retrieval-process");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to load retrieval process");
+
+    $("active-method-label").textContent = state.retrievalMethod;
+    renderRetrievalCards(data.conditions);
+    renderRetrievalCompareTable(data.conditions);
+    $("retrieval-panel").hidden = false;
+  } catch (err) {
+    console.warn("Retrieval process unavailable:", err.message);
+  }
+}
+
+function renderRetrievalCards(conditions) {
+  const container = $("retrieval-cards");
+  container.innerHTML = conditions.map((c) => {
+    const active = c[state.retrievalMethod];
+    const detail = state.retrievalMethod === "keyword"
+      ? `Matched keywords: <strong>${active.matched_keywords.join(", ") || "none"}</strong> &nbsp;(score ${active.score})`
+      : `Similarity score: <strong>${active.score.toFixed(4)}</strong>`;
+
+    return `
+      <div class="retrieval-card">
+        <div class="retrieval-card__query mono">"${c.query}"</div>
+        <div class="retrieval-card__rule">&rarr; ${active.matched_rule || "no match"}</div>
+        <div class="retrieval-card__detail">${detail}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderRetrievalCompareTable(conditions) {
+  const rows = conditions.map((c) => `
+    <tr>
+      <td>${c.condition}</td>
+      <td class="mono">${c.keyword.matched_keywords.join(", ") || "—"} (score ${c.keyword.score})</td>
+      <td class="mono">${c.embeddings.score.toFixed(4)}</td>
+    </tr>
+  `).join("");
+
+  $("retrieval-compare-table").innerHTML = `
+    <thead><tr><th>Condition</th><th>Keyword match (score)</th><th>Embeddings score</th></tr></thead>
+    <tbody>${rows}</tbody>
+  `;
+}
+
 // ---------- RAG comparison (optional panel) ----------
 $("compare-btn").addEventListener("click", async () => {
   $("compare-result").innerHTML = `<p class="mono" style="color:#8B8378;font-size:0.8rem;">Running comparison…</p>`;
@@ -314,5 +422,28 @@ $("compare-btn").addEventListener("click", async () => {
     `;
   } catch (err) {
     $("compare-result").innerHTML = `<p style="color:#B33A3A;">Error: ${err.message}</p>`;
+  }
+});
+
+// ---------- Ask about report ----------
+$("ask-btn").addEventListener("click", async () => {
+  const question = $("ask-input").value.trim();
+  if (!question || !state.lastReport) return;
+
+  const answerBox = $("ask-answer");
+  answerBox.hidden = false;
+  answerBox.textContent = "Thinking… (waiting for the local LLM)";
+
+  try {
+    const res = await fetch("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ report: state.lastReport, question }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to get an answer");
+    answerBox.textContent = data.answer;
+  } catch (err) {
+    answerBox.textContent = `Error: ${err.message}`;
   }
 });
