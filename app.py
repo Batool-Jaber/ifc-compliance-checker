@@ -11,12 +11,14 @@ import sys
 from pathlib import Path
 import os
 from werkzeug.utils import secure_filename
-
 from flask import Flask, render_template, request, jsonify
-
-from main import run_pipeline
+from main import run_pipeline, CONDITION_TO_QUERY
 from generate_ifc import generate_model
 from rag.compare_retrieval import run_comparison
+from rag.llm_advisor import ask_about_report
+from rag.chunking import load_and_chunk
+from rag.retriever import explain as keyword_explain
+from rag.vector_store import build_index, search as embedding_search
 
 app = Flask(__name__)
 
@@ -133,6 +135,61 @@ def api_compare():
     emb_acc = sum(r["embedding_correct"] for r in rows) / len(rows)
 
     return jsonify({"rows": rows, "keyword_accuracy": kw_acc, "embedding_accuracy": emb_acc})
+
+
+@app.route("/api/retrieval-process", methods=["GET"])
+def api_retrieval_process():
+    """
+    For each of the 3 fixed internal queries (CONDITION_TO_QUERY from
+    main.py), runs BOTH retrieval methods and returns full detail:
+    which rule each matched, its score, and (for keyword) which exact
+    words caused the match. Independent of any IFC file -- purely
+    about the RAG layer itself. Used by the "Retrieval Process" panel.
+    """
+    try:
+        chunks = load_and_chunk()
+        index = build_index(chunks)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    results = []
+    for condition, query in CONDITION_TO_QUERY.items():
+        kw_results = keyword_explain(query, chunks)
+        best_kw = kw_results[0] if kw_results else None
+
+        emb_results = embedding_search(query, index, top_k=1)
+        best_emb = emb_results[0] if emb_results else None
+
+        results.append({
+            "condition": condition,
+            "query": query,
+            "keyword": {
+                "matched_rule": best_kw["chunk"]["title"] if best_kw else None,
+                "score": best_kw["score"] if best_kw else 0,
+                "matched_keywords": best_kw["matched_keywords"] if best_kw else [],
+            },
+            "embeddings": {
+                "matched_rule": best_emb["title"] if best_emb else None,
+                "score": round(best_emb["score"], 4) if best_emb else 0,
+            },
+        })
+
+    return jsonify({"conditions": results})
+
+
+@app.route("/api/ask", methods=["POST"])
+def api_ask():
+    data = request.get_json(force=True) or {}
+    report = data.get("report")
+    question = data.get("question", "").strip()
+
+    if not report:
+        return jsonify({"error": "No report provided. Run a compliance check first."}), 400
+    if not question:
+        return jsonify({"error": "Question is empty."}), 400
+
+    answer = ask_about_report(report, question)
+    return jsonify({"answer": answer})
 
 
 if __name__ == "__main__":
