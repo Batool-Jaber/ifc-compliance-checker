@@ -64,6 +64,13 @@ main.py ────────────────────────
 > This is enforced and verified by an automated meta-test
 > (`tests/test_llm_narration_meta.py`).
 
+The web interface additionally offers a **transparency layer**
+(`rag/retriever.explain()` and `rag.llm_advisor.ask_about_report()`)
+that lets you inspect *how* a rule was retrieved and ask follow-up
+questions about a finished report — both are strictly read-only with
+respect to the report and cannot influence the decision above. See
+[Web Interface](#web-interface).
+
 ---
 
 ## Installation
@@ -137,6 +144,10 @@ Each run saves a JSON report to `reports/<model_name>_report.json`.
 pytest
 ```
 
+> Includes 15 tests: compliant / violation / missing-data scenarios,
+> plus 2 meta-tests proving the LLM cannot override a deterministic
+> decision (including under a deliberate prompt-injection attempt).
+
 > No `python -m` prefix needed — `__init__.py` files in `validation/`
 > and `tests/` resolve an import issue that can otherwise occur on
 > Windows machines with Application Control / WDAC security policies.
@@ -147,14 +158,22 @@ pytest
 python rag/compare_retrieval.py
 ```
 
+**6. Run the live visual proof that the LLM cannot override a decision**
+(a standalone script, separate from pytest, used for live demonstrations):
+
+```bash
+python demo_llm_cannot_override.py
+```
+
 ---
 
 ## Web Interface
 
 A responsive Flask web UI is available as a thin, visual layer over the
 same pipeline used by the CLI (`app.py` calls `main.run_pipeline()`,
-`generate_ifc.generate_model()`, and `rag.compare_retrieval.
-run_comparison()` directly — no logic is duplicated).
+`generate_ifc.generate_model()`, `rag.compare_retrieval.run_comparison()`,
+`rag.retriever.explain()`, and `rag.llm_advisor.ask_about_report()`
+directly — no logic is duplicated).
 
 ```bash
 # Flask is already listed in requirements.txt
@@ -175,11 +194,13 @@ Then open **http://localhost:5000** in a browser.
 | **Model Selector** | Four scenarios: **Compliant**, **Violation**, **Missing Data**, and **Custom** |
 | **Custom scenario** | A form to type in your own `room_width`, `room_length`, `window_width`, `window_height`, and `sill_height`, with a **live client-side preview** that color-codes each value green/red against the same thresholds used by `validation/deterministic_checks.py`, before you even click Generate |
 | **File upload** | Upload your own `.ifc` file (e.g. an external or Revit-exported model) to run the pipeline against it instead of a generated preset |
-| **Options Panel** | Toggle retrieval method (Keyword / Embeddings) and switch LLM narration on or off — narration shows an explicit loading indicator, since the local LLM can take a few seconds to respond |
+| **Options Panel** | Toggle retrieval method (Keyword / Embeddings), with an optional switch to reveal a plain-language explanation of what each method does; switch LLM narration on or off — narration shows an explicit loading indicator, since the local LLM can take a few seconds to respond |
 | **Extracted Data + Diagram** | Room and window figures alongside a live SVG diagram (floor plan + window-wall elevation showing sill height), with a graceful "N/A" state when data is missing |
 | **Conditions Results** | Color-coded PASS / FAIL / CANNOT_BE_EVALUATED cards, each showing the deterministic `explanation` and — when narration is on — the LLM's `narration` side by side |
-| **Full Report** | Rendered as a proper table by default, with a toggle to view the raw JSON |
-| **Retrieval Comparison** *(optional)* | A collapsible panel that runs `rag/compare_retrieval.py` on demand and displays keyword vs. embeddings accuracy |
+| **Retrieval Process** | After each run, shows exactly how each condition's rule was retrieved: the internal query sent, the matched rule, and — for keyword — the exact matched words and score, or — for embeddings — the similarity score; plus a table comparing both methods side-by-side for the same 3 real queries |
+| **Full Report** | Rendered as a proper table by default, with a toggle to view the raw JSON, plus **Print** and **Export CSV** actions |
+| **Ask About This Report** | A free-form question box grounded in the finished report's fixed values and cited rule text; answers are advisory only and cannot alter the report (same LLM-boundary principle as narration, single question at a time, no conversation memory) |
+| **Retrieval Comparison** *(optional)* | A collapsible panel that runs `rag/compare_retrieval.py` on demand and displays keyword vs. embeddings accuracy across 6 test queries |
 
 The interface is fully responsive: the two-column layout collapses to a
 single, stacked column on narrower screens.
@@ -194,13 +215,13 @@ single, stacked column on narrower screens.
 | [NumPy](https://numpy.org/) | Geometric transformations (wall/window placement matrices), vector math for embeddings search |
 | [sentence-transformers](https://www.sbert.net/) (`all-MiniLM-L6-v2`) | Local embedding model for the RAG embeddings-based retrieval path |
 | [pytest](https://pytest.org/) | Automated test suite |
-| [Ollama](https://ollama.com/) + `qwen2.5:7b` | Local LLM for optional natural-language narration (`--narrate`) |
+| [Ollama](https://ollama.com/) + `qwen2.5:7b` | Local LLM for optional natural-language narration (`--narrate`) and the "Ask About This Report" feature |
 | [Flask](https://flask.palletsprojects.com/) | Lightweight web server for the optional browser-based UI (`app.py`) |
 
 > **No external/paid APIs are used anywhere in this project.** Both the
-> embeddings model and the narration LLM run entirely locally — the
-> project works fully offline after initial setup, and no API keys are
-> required or stored anywhere in the repository.
+> embeddings model and the narration/advisor LLM run entirely locally —
+> the project works fully offline after initial setup, and no API keys
+> are required or stored anywhere in the repository.
 
 ### Why a local LLM instead of a cloud API?
 
@@ -239,6 +260,10 @@ size.
   relationship return `sill_height_m: null`, which the deterministic
   checker correctly reports as `CANNOT_BE_EVALUATED` rather than
   guessing or crashing.
+- The "Ask About This Report" feature is grounded strictly in a
+  report's already-computed values and cited rule text; it is
+  single-turn (no memory of earlier questions) and, like narration,
+  is explicitly instructed that it cannot alter the report's decision.
 
 ### Error handling
 
@@ -289,7 +314,8 @@ a documented reference, not as the system's data source.
   fully stress-test retrieval precision at scale. `rag/
   compare_retrieval.py` still shows a meaningful accuracy gap between
   keyword search (50%) and embeddings (100%) on rephrased/non-literal
-  queries.
+  queries — the same gap is visible per-run in the web UI's Retrieval
+  Process panel.
 - LLM narration (`--narrate`) requires a local Ollama installation. If
   Ollama is not running or unreachable, the system automatically falls
   back to the original deterministic explanation text. This is backed
@@ -298,4 +324,6 @@ a documented reference, not as the system's data source.
   the `status` field even when fed an adversarial prompt-injection
   attempt, and separate manual verification (Ollama intentionally
   stopped) confirming the narration text exactly matches the
-  deterministic explanation in that scenario.
+  deterministic explanation in that scenario. The "Ask About This
+  Report" advisor follows the same fallback philosophy: it returns a
+  clear "unable to reach the local LLM" message rather than failing.
