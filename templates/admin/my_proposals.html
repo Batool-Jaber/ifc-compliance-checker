@@ -1,0 +1,29 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}My Proposals{% endblock %}
+{% block header_title %}My Proposals{% endblock %}
+{% block header_subtitle %}Status of everything you've submitted{% endblock %}
+
+{% block content %}
+<section class="panel panel--wide">
+  <table class="report-table">
+    <thead>
+      <tr><th>Item</th><th>Submitted</th><th>Status</th><th>Reviewed By</th><th>Note</th></tr>
+    </thead>
+    <tbody>
+      {% for p in proposals %}
+      <tr>
+        <td>{{ "New: " ~ p.proposed_title if p.proposal_type == "new" else "Edit: " ~ p.condition.title }}</td>
+        <td class="mono">{{ p.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td class="mono" data-status="{{ p.status }}">{{ p.status }}</td>
+        <td>{{ p.reviewer.username if p.reviewer else "—" }}</td>
+        <td>{{ p.review_note or "—" }}</td>
+      </tr>
+      {% endfor %}
+      {% if not proposals %}
+      <tr><td colspan="5" class="field__hint">You haven't submitted any proposals yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

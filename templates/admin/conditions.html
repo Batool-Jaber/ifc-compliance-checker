@@ -1,0 +1,53 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Conditions{% endblock %}
+{% block header_title %}Conditions{% endblock %}
+{% block header_subtitle %}Building compliance rules currently enforced by the app{% endblock %}
+
+{% block content %}
+<section class="panel panel--wide">
+  <div class="panel__header-row">
+    <h2>Conditions</h2>
+    {% if current_user.role == Role.ENGINEER.value %}
+      <a href="{{ url_for('admin.propose_new_condition') }}" class="btn btn--ghost">+ Propose New Condition</a>
+    {% endif %}
+  </div>
+
+  <table class="report-table">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Type</th>
+        <th>Value</th>
+        <th>Unit</th>
+        <th>Last Updated</th>
+        {% if current_user.role == Role.ENGINEER.value %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in conditions %}
+      <tr>
+        <td>{{ c.title }}</td>
+        <td class="mono">{{ c.type }}</td>
+        <td class="mono">
+          {% if c.type == ConditionType.MINIMUM.value %}
+            &ge; {{ c.threshold }}
+          {% else %}
+            {{ c.min_value }} &ndash; {{ c.max_value }}
+          {% endif %}
+        </td>
+        <td class="mono">{{ c.unit }}</td>
+        <td class="mono">
+          {{ c.updated_at.strftime('%Y-%m-%d %H:%M') }}{% if c.updater %} by {{ c.updater.username }}{% endif %}
+        </td>
+        {% if current_user.role == Role.ENGINEER.value %}
+        <td>
+          <a href="{{ url_for('admin.propose_condition_edit', condition_id=c.id) }}" class="btn btn--ghost">Propose Edit</a>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

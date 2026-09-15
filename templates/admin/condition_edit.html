@@ -1,0 +1,64 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Propose Edit{% endblock %}
+{% block header_title %}Propose Edit{% endblock %}
+{% block header_subtitle %}{{ condition.title }}{% endblock %}
+
+{% block content %}
+<section class="panel panel--wide">
+  <h2>Propose a Change to &ldquo;{{ condition.title }}&rdquo;</h2>
+  <p class="field__hint">
+    This won't take effect immediately — an admin has to approve it first.
+    The current value stays active in the meantime.
+  </p>
+
+  <form method="POST"
+        class="login-form"
+        data-confirm-title="Confirm Proposal"
+        data-confirm-label="Submit Proposal"
+        data-confirm-message="Submit this proposed change to '{{ condition.title }}' for admin approval? The current value keeps being used until it's approved.">
+
+    <div class="field">
+      <span class="field__label">Title (protected — not editable)</span>
+      <div class="text-input" style="background:var(--grey-light);color:var(--grey);">
+        {{ condition.title }}
+      </div>
+      <!-- Intentionally no <input name="title">: the title can never
+           be submitted from this form, by design. -->
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="description">Description</label>
+      <textarea id="description" name="description" class="text-input" rows="4" required>{{ condition.description }}</textarea>
+    </div>
+
+    {% if condition.type == ConditionType.MINIMUM.value %}
+    <div class="field">
+      <label class="field__label" for="threshold">Threshold</label>
+      <input type="number" step="any" min="0" id="threshold" name="threshold" class="text-input mono" value="{{ condition.threshold }}" required>
+    </div>
+    {% else %}
+    <div class="custom-form__grid">
+      <div class="input-field">
+        <label for="min_value">Min</label>
+        <input type="number" step="any" min="0" id="min_value" name="min_value" class="mono" value="{{ condition.min_value }}" required>
+      </div>
+      <div class="input-field">
+        <label for="max_value">Max</label>
+        <input type="number" step="any" min="0" id="max_value" name="max_value" class="mono" value="{{ condition.max_value }}" required>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="field">
+      <label class="field__label" for="unit">Unit</label>
+      <input type="text" id="unit" name="unit" class="text-input" value="{{ condition.unit }}" required>
+    </div>
+
+    <div class="report-actions">
+      <button type="submit" class="btn btn--primary" style="margin-top:0;width:auto;">Submit Proposal</button>
+      <a href="{{ url_for('admin.conditions_list') }}" class="btn btn--ghost">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

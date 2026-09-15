@@ -1,0 +1,67 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Propose New Condition{% endblock %}
+{% block header_title %}Propose New Condition{% endblock %}
+{% block header_subtitle %}Pending admin approval before it joins the active rule set{% endblock %}
+
+{% block content %}
+<section class="panel panel--wide">
+  <h2>New Condition</h2>
+
+  <form method="POST"
+        class="login-form"
+        data-confirm-title="Confirm New Condition"
+        data-confirm-label="Submit Proposal"
+        data-confirm-message="Submit this new condition for admin approval?">
+
+    <div class="field">
+      <label class="field__label" for="title">Title</label>
+      <input type="text" id="title" name="title" class="text-input" required>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="description">Description</label>
+      <textarea id="description" name="description" class="text-input" rows="4" required></textarea>
+    </div>
+
+    <div class="field">
+      <span class="field__label">Type</span>
+      <div class="toggle-group" id="type-toggle">
+        <button type="button" class="toggle-opt" data-value="minimum" data-active="true">Minimum</button>
+        <button type="button" class="toggle-opt" data-value="range">Range</button>
+      </div>
+      <input type="hidden" name="type" id="type-hidden" value="minimum">
+    </div>
+
+    <div class="field type-minimum-fields">
+      <label class="field__label" for="threshold">Threshold</label>
+      <input type="number" step="any" min="0" id="threshold" name="threshold" class="text-input mono">
+    </div>
+
+    <div class="custom-form__grid type-range-fields" hidden>
+      <div class="input-field">
+        <label for="min_value">Min</label>
+        <input type="number" step="any" min="0" id="min_value" name="min_value" class="mono">
+      </div>
+      <div class="input-field">
+        <label for="max_value">Max</label>
+        <input type="number" step="any" min="0" id="max_value" name="max_value" class="mono">
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="unit">Unit</label>
+      <input type="text" id="unit" name="unit" class="text-input" placeholder="e.g. m², %, m" required>
+    </div>
+
+    <div class="report-actions">
+      <button type="submit" class="btn btn--primary" style="margin-top:0;width:auto;">Submit Proposal</button>
+      <a href="{{ url_for('admin.conditions_list') }}" class="btn btn--ghost">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/admin-conditions.js') }}"></script>
+{% endblock %}

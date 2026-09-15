@@ -1,0 +1,95 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Proposals{% endblock %}
+{% block header_title %}Proposals{% endblock %}
+{% block header_subtitle %}Pending changes awaiting your approval{% endblock %}
+
+{% block content %}
+<section class="panel panel--wide">
+  <h2>Pending ({{ pending|length }})</h2>
+
+  {% if not pending %}
+    <p class="field__hint">Nothing waiting on you right now.</p>
+  {% endif %}
+
+  {% for p in pending %}
+  <article class="proposal-card">
+    <header class="proposal-card__header">
+      <span class="proposal-card__type">
+        {{ "New Condition" if p.proposal_type == "new" else "Edit: " ~ p.condition.title }}
+      </span>
+      <span class="mono proposal-card__meta">
+        by {{ p.submitter.username }} — {{ p.submitted_at.strftime('%Y-%m-%d %H:%M') }}
+      </span>
+    </header>
+
+    <div class="proposal-card__diff">
+      {% if p.proposal_type == "new" %}
+        <p><strong>{{ p.proposed_title }}</strong></p>
+        <p>{{ p.proposed_description }}</p>
+        <p class="mono">
+          {% if p.proposed_type == "minimum" %}
+            &ge; {{ p.proposed_threshold }} {{ p.proposed_unit }}
+          {% else %}
+            {{ p.proposed_min }} &ndash; {{ p.proposed_max }} {{ p.proposed_unit }}
+          {% endif %}
+        </p>
+      {% else %}
+        <p class="proposal-card__row">
+          <span>Description</span>
+          <span class="mono">{{ p.condition.description }}</span>
+          <span>&rarr;</span>
+          <span class="mono">{{ p.proposed_description }}</span>
+        </p>
+        <p class="proposal-card__row">
+          <span>Value</span>
+          <span class="mono">
+            {% if p.condition.type == "minimum" %}&ge; {{ p.condition.threshold }}{% else %}{{ p.condition.min_value }}&ndash;{{ p.condition.max_value }}{% endif %} {{ p.condition.unit }}
+          </span>
+          <span>&rarr;</span>
+          <span class="mono">
+            {% if p.proposed_type == "minimum" %}&ge; {{ p.proposed_threshold }}{% else %}{{ p.proposed_min }}&ndash;{{ p.proposed_max }}{% endif %} {{ p.proposed_unit }}
+          </span>
+        </p>
+      {% endif %}
+    </div>
+
+    <div class="proposal-card__actions">
+      <form method="POST" action="{{ url_for('admin.approve_proposal', proposal_id=p.id) }}"
+            data-confirm-title="Approve Proposal"
+            data-confirm-label="Approve"
+            data-confirm-message="Approve this proposal? It becomes the live value immediately.">
+        <button type="submit" class="btn btn--primary">Approve</button>
+      </form>
+      <form method="POST" action="{{ url_for('admin.reject_proposal', proposal_id=p.id) }}"
+            data-confirm-title="Reject Proposal"
+            data-confirm-label="Reject"
+            data-confirm-message="Reject this proposal? The engineer will see it was rejected.">
+        <button type="submit" class="btn btn--ghost">Reject</button>
+      </form>
+    </div>
+  </article>
+  {% endfor %}
+
+  <h2>Recently Reviewed</h2>
+  <table class="report-table">
+    <thead>
+      <tr><th>Item</th><th>Submitted By</th><th>Status</th><th>Reviewed By</th><th>When</th></tr>
+    </thead>
+    <tbody>
+      {% for p in decided %}
+      <tr>
+        <td>{{ "New: " ~ p.proposed_title if p.proposal_type == "new" else "Edit: " ~ p.condition.title }}</td>
+        <td>{{ p.submitter.username }}</td>
+        <td class="mono" data-status="{{ p.status }}">{{ p.status }}</td>
+        <td>{{ p.reviewer.username if p.reviewer else "—" }}</td>
+        <td class="mono">{{ p.reviewed_at.strftime('%Y-%m-%d %H:%M') if p.reviewed_at else "—" }}</td>
+      </tr>
+      {% endfor %}
+      {% if not decided %}
+      <tr><td colspan="5" class="field__hint">Nothing reviewed yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
