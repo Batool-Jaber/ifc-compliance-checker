@@ -1,0 +1,60 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Users{% endblock %}
+{% block header_title %}Users{% endblock %}
+{% block header_subtitle %}Registrations are self-service — this is where you approve, deactivate, or fix a role{% endblock %}
+
+{% block content %}
+<section class="panel panel--wide">
+  <table class="report-table">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Role</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.username }}</td>
+        <td class="mono">{{ u.role }}</td>
+        <td class="mono" data-status="{{ 'approved' if u.is_active else 'rejected' }}">
+          {{ "Active" if u.is_active else "Inactive" }}
+        </td>
+        <td class="mono">{{ u.created_at.strftime('%Y-%m-%d') }}</td>
+        <td>
+          {% if u.role != Role.ADMIN.value %}
+          <div class="user-row-actions">
+
+            <form method="POST" action="{{ url_for('admin.toggle_user_active', user_id=u.id) }}"
+                  data-confirm-title="{{ 'Deactivate User' if u.is_active else 'Activate User' }}"
+                  data-confirm-label="{{ 'Deactivate' if u.is_active else 'Activate' }}"
+                  data-confirm-message="{{ ('Deactivate ' ~ u.username ~ '? They will be logged out and unable to sign in.') if u.is_active else (u.username ~ ' will be able to log in immediately after this.') }}">
+              <button type="submit" class="btn btn--ghost">
+                {{ "Deactivate" if u.is_active else "Activate" }}
+              </button>
+            </form>
+
+            <form method="POST" action="{{ url_for('admin.change_user_role', user_id=u.id) }}" class="user-role-form">
+              <select name="role" class="text-input mono">
+                {% for r in assignable_roles %}
+                  <option value="{{ r }}" {% if r == u.role %}selected{% endif %}>{{ r }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn btn--ghost">Update Role</button>
+            </form>
+
+          </div>
+          {% else %}
+            <span class="field__hint">— fixed —</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

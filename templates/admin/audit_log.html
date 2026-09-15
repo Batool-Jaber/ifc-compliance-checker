@@ -1,0 +1,47 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Audit Log{% endblock %}
+{% block header_title %}Audit Log{% endblock %}
+{% block header_subtitle %}Every approved change to a condition, newest first{% endblock %}
+
+{% block content %}
+<section class="panel panel--wide">
+  <table class="report-table">
+    <thead>
+      <tr>
+        <th>When</th>
+        <th>Condition</th>
+        <th>Field</th>
+        <th>Old &rarr; New</th>
+        <th>Approved By</th>
+        <th>Proposed By</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td class="mono">{{ e.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ e.condition.title }}</td>
+        <td class="mono">{{ e.field_changed }}</td>
+        <td class="mono">
+          {{ e.old_value if e.old_value is not none else "—" }}
+          &rarr;
+          {{ e.new_value if e.new_value is not none else "—" }}
+        </td>
+        <td>{{ e.user.username }}</td>
+        <td>{{ e.proposal.submitter.username if e.proposal else "—" }}</td>
+      </tr>
+      {% endfor %}
+      {% if not entries %}
+      <tr><td colspan="6" class="field__hint">No changes have been approved yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  {% if entries|length == page_size %}
+  <p class="field__hint" style="margin-top:12px;">
+    Showing the most recent {{ page_size }} entries.
+  </p>
+  {% endif %}
+</section>
+{% endblock %}
