@@ -1,0 +1,26 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Login{% endblock %}
+{% block header_title %}Admin Login{% endblock %}
+{% block header_subtitle %}Sign in to manage compliance conditions{% endblock %}
+
+{% block content %}
+<section class="panel panel--narrow">
+  <h2>Sign In</h2>
+  <form method="POST" action="{{ url_for('admin.login') }}" class="login-form">
+    <div class="field">
+      <label class="field__label" for="username">Username</label>
+      <input type="text" id="username" name="username" class="text-input" required autofocus>
+    </div>
+    <div class="field">
+      <label class="field__label" for="password">Password</label>
+      <input type="password" id="password" name="password" class="text-input" required>
+    </div>
+    <button type="submit" class="btn btn--primary">Sign In</button>
+  </form>
+
+  <p class="field__hint" style="margin-top:16px;">
+    No account yet? <a href="{{ url_for('admin.register') }}">Register</a>.
+  </p>
+</section>
+{% endblock %}

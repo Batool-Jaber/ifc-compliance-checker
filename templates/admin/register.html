@@ -1,0 +1,60 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Register{% endblock %}
+{% block header_title %}Create Account{% endblock %}
+{% block header_subtitle %}Engineer accounts need admin approval before first login{% endblock %}
+
+{% block content %}
+<section class="panel panel--narrow">
+  <h2>Register</h2>
+  <form method="POST" action="{{ url_for('admin.register') }}" class="login-form">
+    <div class="field">
+      <label class="field__label" for="username">Username</label>
+      <input type="text" id="username" name="username" class="text-input" required autofocus>
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="password">Password</label>
+      <input type="password" id="password" name="password" class="text-input" required minlength="6">
+    </div>
+
+    <div class="field">
+      <label class="field__label" for="confirm_password">Confirm Password</label>
+      <input type="password" id="confirm_password" name="confirm_password" class="text-input" required minlength="6">
+    </div>
+
+    <div class="field">
+      <span class="field__label">I am a…</span>
+      <div class="toggle-group" id="register-role-toggle">
+        <button type="button" class="toggle-opt" data-value="viewer" data-active="true">Viewer</button>
+        <button type="button" class="toggle-opt" data-value="engineer">Engineer</button>
+      </div>
+      <input type="hidden" name="role" id="register-role-hidden" value="viewer">
+      <p class="field__hint">
+        Viewer: read-only access, active immediately.<br>
+        Engineer: can propose rule changes, needs admin approval first.
+      </p>
+    </div>
+
+    <button type="submit" class="btn btn--primary">Create Account</button>
+  </form>
+
+  <p class="field__hint" style="margin-top:16px;">
+    Already have an account? <a href="{{ url_for('admin.login') }}">Sign in</a>.
+  </p>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const roleToggle = document.getElementById("register-role-toggle");
+  const roleHidden = document.getElementById("register-role-hidden");
+  roleToggle.addEventListener("click", (e) => {
+    const btn = e.target.closest(".toggle-opt");
+    if (!btn) return;
+    roleToggle.querySelectorAll(".toggle-opt").forEach((o) => (o.dataset.active = "false"));
+    btn.dataset.active = "true";
+    roleHidden.value = btn.dataset.value;
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Admin{% endblock %} — IFC Compliance Checker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+
+<header class="title-block">
+  <div class="title-block__mark">ADM</div>
+  <div class="title-block__text">
+    <h1>{% block header_title %}Admin{% endblock %}</h1>
+    <p>{% block header_subtitle %}Compliance rule &amp; user management{% endblock %}</p>
+  </div>
+
+  {% if current_user %}
+  <nav class="admin-nav">
+    <a href="{{ url_for('index') }}" class="admin-nav__link">Compliance Checker</a>
+    <a href="{{ url_for('admin.conditions_list') }}" class="admin-nav__link">Conditions</a>
+
+    {% if current_user.role in (Role.ADMIN.value, Role.ENGINEER.value) %}
+      <a href="{{ url_for('admin.audit_log') }}" class="admin-nav__link">Audit Log</a>
+    {% endif %}
+
+    {% if current_user.role == Role.ADMIN.value %}
+      <a href="{{ url_for('admin.proposals_list') }}" class="admin-nav__link">Proposals</a>
+      <a href="{{ url_for('admin.users_list') }}" class="admin-nav__link">Users</a>
+    {% elif current_user.role == Role.ENGINEER.value %}
+      <a href="{{ url_for('admin.my_proposals') }}" class="admin-nav__link">My Proposals</a>
+    {% endif %}
+
+    <a href="{{ url_for('admin.logout') }}" class="admin-nav__link admin-nav__link--logout">
+      Logout ({{ current_user.username }})
+    </a>
+  </nav>
+  {% endif %}
+</header>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="flash-banner" data-kind="{{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<main class="sheet">
+  {% block content %}{% endblock %}
+</main>
+
+<script src="{{ url_for('static', filename='js/admin-modal.js') }}"></script>
+<script src="{{ url_for('static', filename='js/admin-forms.js') }}"></script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>
