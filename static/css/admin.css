@@ -1,0 +1,167 @@
+/* ======================================================================
+   admin.css
+   Additive styles for the /admin/* section only.
+
+   Reuses the CSS variables and component classes already defined in
+   style.css (--ink, --blue, .panel, .btn, .field, .mono, etc.) -- this
+   file never redefines :root and never duplicates a class that already
+   exists there. Loaded AFTER style.css in base_admin.html.
+   ====================================================================== */
+
+/* ---------- Admin nav (inside the existing .title-block header) ---------- */
+.title-block { flex-wrap: wrap; }
+
+.admin-nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-left: auto;
+}
+.admin-nav__link {
+  color: var(--paper);
+  font-size: 0.85rem;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  padding-bottom: 2px;
+}
+.admin-nav__link:hover { border-bottom-color: var(--paper); }
+.admin-nav__link--logout { color: #C7D2DC; }
+
+/* ---------- Flash messages (login/logout feedback, save results, etc.) ---------- */
+.flash-banner {
+  padding: 12px 24px;
+  font-size: 0.85rem;
+  border-bottom: 2px solid var(--grey);
+  text-align: center;
+}
+.flash-banner[data-kind="error"] {
+  background: var(--red-light); color: var(--red); border-bottom-color: var(--red);
+}
+.flash-banner[data-kind="success"] {
+  background: var(--green-light); color: var(--green); border-bottom-color: var(--green);
+}
+
+/* ---------- Login form ---------- */
+.panel--narrow {
+  max-width: 380px;
+  margin: 60px auto;
+  grid-column: 1 / -1;  /* .sheet is a 2-col grid; span both so auto-margin centers it */
+}
+.login-form { display: flex; flex-direction: column; gap: 16px; }
+
+.text-input {
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.9rem;
+  background: #fff;
+  color: var(--ink);
+  width: 100%;
+}
+.text-input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px var(--blue-light);
+}
+
+/* ---------- Confirmation modal (ONE reusable component, see admin-modal.js) ---------- */
+.admin-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 43, 60, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.admin-modal {
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 420px;
+  width: 90%;
+}
+.admin-modal__title {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.admin-modal__message {
+  margin: 0 0 20px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--ink);
+}
+.admin-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ---------- Shared layout helpers used across admin pages ---------- */
+.panel--wide { grid-column: 1 / -1; }
+
+.panel__header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.report-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+/* ---------- Proposal review cards (admin/proposals.html) ---------- */
+.proposal-card {
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+.proposal-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+.proposal-card__type { font-weight: 700; }
+.proposal-card__meta { color: var(--grey); font-size: 0.8rem; }
+.proposal-card__diff { font-size: 0.88rem; margin-bottom: 12px; }
+.proposal-card__row {
+  display: grid;
+  grid-template-columns: 100px 1fr 24px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+.proposal-card__actions { display: flex; gap: 10px; }
+.proposal-card__actions form { margin: 0; }
+
+/* ---------- Status coloring, reused wherever a status column appears ---------- */
+[data-status="approved"] { color: var(--green); }
+[data-status="rejected"] { color: var(--red); }
+[data-status="pending"]  { color: var(--blue); }
+
+/* ---------- User management row actions (admin/users.html) ---------- */
+.user-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.user-role-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.user-role-form select.text-input {
+  width: auto;
+  padding: 6px 8px;
+}

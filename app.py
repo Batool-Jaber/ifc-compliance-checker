@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 import os
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, url_for
 from main import run_pipeline, CONDITION_TO_QUERY
 from generate_ifc import generate_model
 from rag.compare_retrieval import run_comparison
@@ -19,6 +19,9 @@ from rag.llm_advisor import ask_about_report
 from rag.chunking import load_and_chunk
 from rag.retriever import explain as keyword_explain
 from rag.vector_store import build_index, search as embedding_search
+from admin import init_admin
+from admin.decorators import login_required, get_current_user
+from admin.models import Role
 
 app = Flask(__name__)
 
@@ -41,12 +44,21 @@ UPLOAD_DIR = "data/uploaded"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 sys.path.append(str(Path(__file__).parent))
 
+
 @app.route("/")
+@login_required
 def index():
-    return render_template("index.html")
+    user = get_current_user()
+    admin_link = None
+    if user.role == Role.ADMIN.value:
+        admin_link = url_for("admin.proposals_list")
+    elif user.role == Role.ENGINEER.value:
+        admin_link = url_for("admin.conditions_list")
+    return render_template("index.html", current_user=user, admin_link=admin_link)
 
 
 @app.route("/api/generate", methods=["POST"])
+@login_required
 def api_generate():
     data = request.get_json(force=True) or {}
     scenario = data.get("scenario", "compliant")
@@ -86,6 +98,7 @@ def api_generate():
 
 
 @app.route("/api/upload", methods=["POST"])
+@login_required
 def api_upload():
     if "file" not in request.files:
         return jsonify({"error": "No file part in the request"}), 400
@@ -105,6 +118,7 @@ def api_upload():
 
 
 @app.route("/api/run", methods=["POST"])
+@login_required
 def api_run():
     data = request.get_json(force=True) or {}
     ifc_path = data.get("ifc_path")
@@ -125,6 +139,7 @@ def api_run():
 
 
 @app.route("/api/compare", methods=["GET"])
+@login_required
 def api_compare():
     try:
         rows = run_comparison()
@@ -138,6 +153,7 @@ def api_compare():
 
 
 @app.route("/api/retrieval-process", methods=["GET"])
+@login_required
 def api_retrieval_process():
     """
     For each of the 3 fixed internal queries (CONDITION_TO_QUERY from
@@ -178,6 +194,7 @@ def api_retrieval_process():
 
 
 @app.route("/api/ask", methods=["POST"])
+@login_required
 def api_ask():
     data = request.get_json(force=True) or {}
     report = data.get("report")
@@ -191,6 +208,11 @@ def api_ask():
     answer = ask_about_report(report, question)
     return jsonify({"answer": answer})
 
+
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-insecure-secret-key")
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///admin.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+init_admin(app)
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

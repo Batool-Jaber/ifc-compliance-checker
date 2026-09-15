@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
 </head>
 <body>
 
@@ -16,6 +17,16 @@
     <h1>Compliance Checker</h1>
     <p>Room area &middot; Window ratio &middot; Sill height &mdash; validated deterministically</p>
   </div>
+
+  {% if current_user %}
+  <nav class="admin-nav">
+    {% if admin_link %}
+      <a href="{{ admin_link }}" class="admin-nav__link">Admin Panel</a>
+    {% endif %}
+    <span class="admin-nav__link">Signed in as {{ current_user.username }}</span>
+    <a href="{{ url_for('admin.logout') }}" class="admin-nav__link admin-nav__link--logout">Logout</a>
+  </nav>
+  {% endif %}
 </header>
 
 <div class="error-banner" id="error-banner" hidden></div>
