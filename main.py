@@ -23,7 +23,26 @@ have zero influence on calculated_value/required_value/status, which
 come entirely from validation/deterministic_checks.py's pure-Python
 arithmetic.
 
-Usage:
+DYNAMIC CONDITIONS (NEW): run_pipeline() accepts an optional
+`conditions` list -- plain dicts read from the live `conditions` DB
+table by the CALLER (app.py, which runs inside a Flask app context).
+This module itself has ZERO knowledge of Flask/SQLAlchemy (same
+isolation principle as validation/generic_engine.py and
+rag/chunking.py::build_chunks_from_conditions -- see those modules).
+
+  - conditions=None (default): behaves EXACTLY as before -- standalone
+    CLI usage, no DB/Flask involved at all. Uses the static
+    CONDITION_TO_QUERY dict and rag/chunking.py::load_and_chunk()
+    (reads knowledge_base/building_conditions.md).
+  - conditions=[...]: used by the live web app. RAG chunks are built
+    from these conditions directly (build_chunks_from_conditions()),
+    the retrieval query for EVERY condition (original 3 included) is
+    generated from that condition's own title, and any condition
+    beyond the original 3 (identified by field_path being set) is
+    passed to run_all_checks() as extra_conditions, evaluated by the
+    generic engine.
+
+Usage (unchanged):
     python main.py data/generated/compliant_model.ifc
     python main.py data/generated/violation_model.ifc --retrieval-method embeddings
     python main.py data/generated/compliant_model.ifc --narrate
@@ -39,11 +58,13 @@ sys.path.append(str(Path(__file__).parent))
 
 from extract_ifc_data import extract_all
 from validation.deterministic_checks import run_all_checks
-from rag.chunking import load_and_chunk
+from rag.chunking import load_and_chunk, build_chunks_from_conditions
 from rag.retriever import retrieve as keyword_retrieve
 from rag.vector_store import build_index, search as embedding_search
 from rag.llm_narration import narrate
 
+# Used only when run_pipeline() is called with conditions=None (the
+# original 3, standalone-CLI path). Left exactly as before -- untouched.
 CONDITION_TO_QUERY = {
     "Minimum Room Area": "what is the minimum room area",
     "Minimum Window Area": "window area percentage requirement",
@@ -63,20 +84,50 @@ def _retrieve_rule_text(query: str, retrieval_method: str, chunks: list, index: 
     return results[0]["title"], results[0]["text"]
 
 
-def run_pipeline(ifc_path: str, retrieval_method: str = "keyword", narrate_results: bool = False) -> dict:
+def run_pipeline(
+    ifc_path: str,
+    retrieval_method: str = "keyword",
+    narrate_results: bool = False,
+    conditions: list[dict] | None = None,
+) -> dict:
     """
     Runs the full pipeline against one IFC file and returns a single
     combined compliance report dict.
+
+    conditions=None -> standalone/CLI behavior, unchanged (static file
+    + static CONDITION_TO_QUERY). conditions=[...] -> live DB-driven
+    behavior (see module docstring).
     """
     extracted = extract_all(ifc_path)
-    check_results = run_all_checks(extracted["room"], extracted["window"])
 
-    chunks = load_and_chunk()
+    if conditions is None:
+        # ---- Unchanged original path ----
+        check_results = run_all_checks(extracted["room"], extracted["window"])
+        chunks = load_and_chunk()
+        query_for = lambda condition_title: CONDITION_TO_QUERY.get(condition_title, condition_title)
+    else:
+        # ---- New DB-driven path ----
+        # Conditions with a field_path are the ones beyond the original
+        # 3 (those are still evaluated by their own hardcoded functions
+        # inside run_all_checks() -- never touched, per the agreed design).
+        extra_conditions = [
+            c for c in conditions
+            if c.get("field_path") and c["title"] not in CONDITION_TO_QUERY
+        ]
+        check_results = run_all_checks(extracted["room"], extracted["window"], extra_conditions)
+        chunks = build_chunks_from_conditions(conditions)
+
+        # Query generated from each condition's OWN title -- works for
+        # the original 3 too, since build_chunks_from_conditions()
+        # produces one chunk per condition regardless of count (same
+        # guarantee load_and_chunk() already provided for the static file).
+        query_for = lambda condition_title: condition_title
+
     # Only build the (heavier, model-loading) embedding index if actually needed
     index = build_index(chunks) if retrieval_method == "embeddings" else None
 
     for result in check_results:
-        query = CONDITION_TO_QUERY.get(result["condition"], result["condition"])
+        query = query_for(result["condition"])
         rule_source, rule_text = _retrieve_rule_text(query, retrieval_method, chunks, index)
         result["rule_source"] = rule_source
         result["rule_text"] = rule_text

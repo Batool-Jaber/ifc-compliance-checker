@@ -8,7 +8,22 @@ the human-readable rule text; these functions do the actual math.
 Each check function returns a dict with:
   status: "PASS" | "FAIL" | "CANNOT_BE_EVALUATED"
   calculated_value, required_value, explanation
+
+The 3 original hardcoded checks below (check_room_area,
+check_window_ratio, check_sill_height) are UNCHANGED from the original
+version of this file -- not touched, not reimplemented as wrappers --
+per the agreed design (their custom explanation wording is exactly
+what tests/test_*.py assert against).
+
+run_all_checks() now accepts an optional `extra_conditions` list --
+plain dicts (see validation/generic_engine.py for the expected shape),
+evaluated via the generic engine and appended AFTER the 3 original
+results. Defaults to None so every existing call site (including all
+current tests, which call run_all_checks(room, window) with exactly
+2 positional arguments) keeps working unmodified.
 """
+
+from validation.generic_engine import evaluate_condition
 
 MIN_ROOM_AREA_M2 = 12.0
 MIN_WINDOW_RATIO_PERCENT = 10.0
@@ -101,12 +116,32 @@ def check_sill_height(window_data: dict | None) -> dict:
     }
 
 
-def run_all_checks(room_data: dict | None, window_data: dict | None) -> list[dict]:
-    return [
+def run_all_checks(
+    room_data: dict | None,
+    window_data: dict | None,
+    extra_conditions: list[dict] | None = None,
+) -> list[dict]:
+    """
+    Runs the 3 original hardcoded checks (unchanged), then evaluates
+    any extra_conditions (admin-approved conditions beyond the
+    original 3) via the generic engine, and returns everything in one
+    combined list.
+
+    extra_conditions defaults to None (treated as empty) so every
+    existing caller -- including all current tests, which call this
+    with exactly 2 positional arguments -- keeps working with zero
+    changes.
+    """
+    results = [
         check_room_area(room_data),
         check_window_ratio(room_data, window_data),
         check_sill_height(window_data),
     ]
+
+    for condition in extra_conditions or []:
+        results.append(evaluate_condition(condition, room_data, window_data))
+
+    return results
 
 
 if __name__ == "__main__":
