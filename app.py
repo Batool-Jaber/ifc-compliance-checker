@@ -5,6 +5,12 @@ Flask backend for the IFC Compliance Checker web interface.
 Wraps the existing project logic (generate_ifc.generate_model,
 main.run_pipeline, rag.compare_retrieval.run_comparison) -- no
 duplicated business logic, this file is a thin API layer only.
+
+DYNAMIC CONDITIONS (NEW): this is the ONE place in the whole codebase
+allowed to query the `conditions` DB table and hand the results to
+main.run_pipeline()/build_chunks_from_conditions() as plain dicts --
+those modules stay Flask/SQLAlchemy-unaware (see their own docstrings).
+_active_conditions_as_dicts() below is the single conversion point.
 """
 
 import sys
@@ -16,12 +22,12 @@ from main import run_pipeline, CONDITION_TO_QUERY
 from generate_ifc import generate_model
 from rag.compare_retrieval import run_comparison
 from rag.llm_advisor import ask_about_report
-from rag.chunking import load_and_chunk
+from rag.chunking import load_and_chunk, build_chunks_from_conditions
 from rag.retriever import explain as keyword_explain
 from rag.vector_store import build_index, search as embedding_search
 from admin import init_admin
 from admin.decorators import login_required, get_current_user
-from admin.models import Role
+from admin.models import Condition, Role
 
 app = Flask(__name__)
 
@@ -43,6 +49,29 @@ CUSTOM_FIELDS = ["room_width", "room_length", "window_width", "window_height", "
 UPLOAD_DIR = "data/uploaded"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 sys.path.append(str(Path(__file__).parent))
+
+
+def _active_conditions_as_dicts() -> list[dict]:
+    """
+    THE single conversion point from live DB rows to the plain-dict
+    shape main.run_pipeline()/rag.chunking.build_chunks_from_conditions()/
+    validation.generic_engine expect. Keeps every other module
+    Flask/SQLAlchemy-unaware (see their docstrings).
+    """
+    return [
+        {
+            "id": c.id,
+            "title": c.title,
+            "description": c.description,
+            "type": c.type,
+            "threshold": c.threshold,
+            "min_value": c.min_value,
+            "max_value": c.max_value,
+            "unit": c.unit,
+            "field_path": c.field_path,
+        }
+        for c in Condition.query.order_by(Condition.title).all()
+    ]
 
 
 @app.route("/")
@@ -120,6 +149,13 @@ def api_upload():
 @app.route("/api/run", methods=["POST"])
 @login_required
 def api_run():
+    """
+    NEW: now fetches the LIVE condition set from the DB and passes it
+    to run_pipeline(conditions=...) -- this is what makes admin-approved
+    conditions (original 3 AND any new ones) actually get checked,
+    instead of just sitting in the DB unused (the core problem this
+    whole task exists to fix).
+    """
     data = request.get_json(force=True) or {}
     ifc_path = data.get("ifc_path")
     retrieval_method = data.get("retrieval_method", "keyword")
@@ -129,13 +165,37 @@ def api_run():
         return jsonify({"error": "ifc_path is required"}), 400
 
     try:
-        report = run_pipeline(ifc_path, retrieval_method=retrieval_method, narrate_results=narrate)
+        conditions = _active_conditions_as_dicts()
+        report = run_pipeline(
+            ifc_path,
+            retrieval_method=retrieval_method,
+            narrate_results=narrate,
+            conditions=conditions,
+        )
     except FileNotFoundError:
         return jsonify({"error": f"IFC file not found: {ifc_path}. Generate a model first."}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
     return jsonify(report)
+
+
+@app.route("/api/conditions", methods=["GET"])
+@login_required
+def api_conditions():
+    """
+    NEW (Step 7 of the plan). Returns every currently-active condition
+    (built-in 3 + any admin-approved new ones), for the main tool's
+    always-visible "Conditions" reference panel -- separate from the
+    post-run PASS/FAIL results panel, and independent of whether a
+    check has been run yet.
+    """
+    try:
+        conditions = _active_conditions_as_dicts()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    return jsonify({"conditions": conditions})
 
 
 @app.route("/api/compare", methods=["GET"])
@@ -156,20 +216,23 @@ def api_compare():
 @login_required
 def api_retrieval_process():
     """
-    For each of the 3 fixed internal queries (CONDITION_TO_QUERY from
-    main.py), runs BOTH retrieval methods and returns full detail:
-    which rule each matched, its score, and (for keyword) which exact
-    words caused the match. Independent of any IFC file -- purely
-    about the RAG layer itself. Used by the "Retrieval Process" panel.
+    UPDATED (Step 10 of the plan): now runs over EVERY active DB
+    condition (original 3 + any new ones), not the static
+    CONDITION_TO_QUERY dict -- so a newly-approved condition shows up
+    in the "Retrieval Process" panel too, not just the original 3.
+    Query is generated from each condition's own title, matching
+    main.py's live-path behavior exactly.
     """
     try:
-        chunks = load_and_chunk()
+        conditions = _active_conditions_as_dicts()
+        chunks = build_chunks_from_conditions(conditions)
         index = build_index(chunks)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
     results = []
-    for condition, query in CONDITION_TO_QUERY.items():
+    for condition in conditions:
+        query = condition["title"]
         kw_results = keyword_explain(query, chunks)
         best_kw = kw_results[0] if kw_results else None
 
@@ -177,7 +240,7 @@ def api_retrieval_process():
         best_emb = emb_results[0] if emb_results else None
 
         results.append({
-            "condition": condition,
+            "condition": condition["title"],
             "query": query,
             "keyword": {
                 "matched_rule": best_kw["chunk"]["title"] if best_kw else None,
