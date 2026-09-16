@@ -103,6 +103,12 @@ def extract_window_data(model):
     Returns sill_height_m = None if the window has no proper opening
     relationship (this is exactly the failure mode we hit with the
     Revit export -- it must degrade gracefully, not crash).
+
+    NOTE: does NOT compute area_ratio_percent -- that requires the
+    room's floor_area_m2, which this function deliberately has no
+    access to (keeps room/window extraction independent -- see
+    module docstring). See extract_all() for where the two are
+    combined.
     """
     windows = model.by_type("IfcWindow")
     if not windows:
@@ -164,17 +170,55 @@ def _extract_sill_height(model, window):
     return round(opening_z - storey_elevation, 4)
 
 
+def _compute_area_ratio_percent(room, window):
+    """
+    Derived field: window area as a percentage of room floor area.
+    Lives here (not inside extract_window_data) because it needs BOTH
+    room and window data -- computing it at this level, once both
+    extractions are done, keeps extract_room_data/extract_window_data
+    independent of each other (Single Responsibility -- see module
+    docstring's design principle).
+
+    Returns None (never raises, never 0 as a silent fallback) if:
+      - room or window is None (one of them wasn't found at all), or
+      - either floor_area_m2 or area_m2 is None (missing data), or
+      - floor_area_m2 == 0 (would be a division by zero).
+    This mirrors the exact "-> CANNOT_BE_EVALUATED" philosophy used
+    everywhere else in this file for missing/invalid data.
+    """
+    if room is None or window is None:
+        return None
+
+    room_area = room.get("floor_area_m2")
+    window_area = window.get("area_m2")
+
+    if room_area is None or window_area is None or room_area == 0:
+        return None
+
+    return round((window_area / room_area) * 100, 4)
+
+
 def extract_all(ifc_path):
     """
     Top-level entry point: opens the IFC file and returns a single
     dict with everything downstream compliance-checking code needs.
+
+    This is the ONLY place that combines room + window data (e.g. the
+    derived area_ratio_percent) -- extract_room_data/extract_window_data
+    themselves stay fully independent of each other.
     """
     model = ifcopenshell.open(ifc_path)
+    room = extract_room_data(model)
+    window = extract_window_data(model)
+
+    if window is not None:
+        window["area_ratio_percent"] = _compute_area_ratio_percent(room, window)
+
     return {
         "source_file": ifc_path,
         "schema": model.schema,
-        "room": extract_room_data(model),
-        "window": extract_window_data(model),
+        "room": room,
+        "window": window,
     }
 
 
