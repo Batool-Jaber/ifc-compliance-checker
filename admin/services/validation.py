@@ -8,6 +8,7 @@ two flows.
 """
 
 from admin.models import ConditionType, Role
+from validation.field_paths import is_known_field_path
 
 MIN_PASSWORD_LENGTH = 6
 
@@ -42,10 +43,22 @@ def validate_condition_values(
     max_value: float | None,
     unit: str,
     description: str,
+    field_path: str | None = None,
 ) -> None:
     """Raises ValidationError if anything is wrong; returns None (does
     nothing) if the values are valid. Collects ALL problems found, not
-    just the first one, so the user fixes everything in one pass."""
+    just the first one, so the user fixes everything in one pass.
+
+    field_path validation (NEW): if a field_path is provided, it MUST
+    be one of validation.field_paths.KNOWN_FIELD_PATHS -- rejected
+    server-side regardless of what the client sent, even if someone
+    bypasses the dropdown with a hand-crafted request. field_path
+    itself stays optional at this function's level (None is allowed
+    through) because the 3 original conditions never set it -- the
+    route layer (propose_new_condition) is what enforces "required for
+    a brand-new proposal", since that requirement doesn't apply to
+    every possible caller of this function.
+    """
     errors: list[str] = []
 
     if condition_type not in ConditionType.values():
@@ -59,6 +72,9 @@ def validate_condition_values(
 
     if not unit or not unit.strip():
         errors.append("Unit cannot be empty.")
+
+    if field_path is not None and not is_known_field_path(field_path):
+        errors.append(f"'{field_path}' is not a recognized field to check against.")
 
     if condition_type == ConditionType.MINIMUM.value:
         if threshold is None:

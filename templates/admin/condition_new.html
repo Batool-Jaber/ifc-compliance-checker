@@ -25,6 +25,26 @@
     </div>
 
     <div class="field">
+      <label class="field__label" for="field_path">Checks against</label>
+      <select id="field_path" name="field_path" class="text-input" required>
+        <option value="" disabled selected>Select the extracted value this condition validates…</option>
+        {% set labels = {
+          "room.width_m": "Room Width (m)",
+          "room.length_m": "Room Length (m)",
+          "room.floor_area_m2": "Room Floor Area (m²)",
+          "window.width_m": "Window Width (m)",
+          "window.height_m": "Window Height (m)",
+          "window.area_m2": "Window Area (m²)",
+          "window.sill_height_m": "Window Sill Height (m)",
+          "window.area_ratio_percent": "Window Area Ratio (%)",
+        } %}
+        {% for path in field_paths %}
+          <option value="{{ path }}">{{ labels.get(path, path) }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
       <span class="field__label">Type</span>
       <div class="toggle-group" id="type-toggle">
         <button type="button" class="toggle-opt" data-value="minimum" data-active="true">Minimum</button>

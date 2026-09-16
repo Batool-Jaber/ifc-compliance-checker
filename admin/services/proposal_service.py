@@ -27,7 +27,9 @@ from admin.models import (
 )
 from admin.services.validation import validate_condition_values
 
-_TRACKED_FIELDS = ("description", "type", "threshold", "min_value", "max_value", "unit")
+# NEW: field_path added -- tracked/audited exactly like the other
+# fields (description, type, threshold, etc.)
+_TRACKED_FIELDS = ("description", "type", "threshold", "min_value", "max_value", "unit", "field_path")
 
 
 def _utcnow() -> datetime:
@@ -48,10 +50,11 @@ def create_edit_proposal(
     min_value: float | None,
     max_value: float | None,
     unit: str,
+    field_path: str | None = None,
 ) -> ConditionProposal:
     """`condition_type` is passed in as the condition's EXISTING type --
     this flow doesn't let an engineer change minimum<->range, only the
-    numeric values/description/unit of the existing type."""
+    numeric values/description/unit/field_path of the existing type."""
     validate_condition_values(
         condition_type,
         threshold=threshold,
@@ -59,6 +62,7 @@ def create_edit_proposal(
         max_value=max_value,
         unit=unit,
         description=description,
+        field_path=field_path,
     )
 
     proposal = ConditionProposal(
@@ -70,6 +74,7 @@ def create_edit_proposal(
         proposed_min=min_value,
         proposed_max=max_value,
         proposed_unit=unit,
+        proposed_field_path=field_path,
         submitted_by=submitted_by.id,
     )
     db.session.add(proposal)
@@ -87,6 +92,7 @@ def create_new_proposal(
     min_value: float | None,
     max_value: float | None,
     unit: str,
+    field_path: str,
 ) -> ConditionProposal:
     validate_condition_values(
         condition_type,
@@ -95,6 +101,7 @@ def create_new_proposal(
         max_value=max_value,
         unit=unit,
         description=description,
+        field_path=field_path,
     )
 
     proposal = ConditionProposal(
@@ -107,6 +114,7 @@ def create_new_proposal(
         proposed_min=min_value,
         proposed_max=max_value,
         proposed_unit=unit,
+        proposed_field_path=field_path,
         submitted_by=submitted_by.id,
     )
     db.session.add(proposal)
@@ -177,6 +185,7 @@ def _apply_proposed_values(condition: Condition, proposal: ConditionProposal, re
     condition.min_value = proposal.proposed_min
     condition.max_value = proposal.proposed_max
     condition.unit = proposal.proposed_unit
+    condition.field_path = proposal.proposed_field_path
     condition.updated_at = _utcnow()
     condition.updated_by = reviewed_by.id
 
@@ -191,6 +200,7 @@ def _create_condition_from_proposal(proposal: ConditionProposal) -> Condition:
         min_value=proposal.proposed_min,
         max_value=proposal.proposed_max,
         unit=proposal.proposed_unit,
+        field_path=proposal.proposed_field_path,
     )
     db.session.add(condition)
     db.session.flush()  # confirms condition.id before we link the proposal to it

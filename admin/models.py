@@ -29,6 +29,17 @@ Design notes
   submitted_by`. `Condition.proposals` also gives the full proposal
   history (approved, rejected, and pending) for a given condition on
   its own, without needing the audit log at all.
+
+- `field_path` (NEW): which extracted IFC value (see
+  validation/field_paths.py::KNOWN_FIELD_PATHS) this condition is
+  checked against by the generic engine (validation/generic_engine.py).
+  Nullable because the 3 ORIGINAL conditions don't use it -- they're
+  evaluated by their own permanently-hardcoded functions in
+  validation/deterministic_checks.py (check_room_area, etc.), not the
+  generic engine. Every condition proposed through the admin panel
+  going forward (routes/conditions.py::propose_new_condition) requires
+  it -- enforced in services/validation.py, not at the DB level, since
+  "required" depends on which condition this is, not a fixed rule.
 """
 
 from datetime import datetime, timezone
@@ -146,6 +157,10 @@ class Condition(db.Model):
     max_value = db.Column(db.Float, nullable=True)   # used when type == "range"
     unit = db.Column(db.String(20), nullable=False)
 
+    # NEW -- see module docstring. Nullable: the 3 original conditions
+    # don't use it (their own hardcoded functions check them instead).
+    field_path = db.Column(db.String(100), nullable=True)
+
     updated_at = db.Column(db.DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
     updated_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
 
@@ -193,6 +208,7 @@ class ConditionProposal(db.Model):
     proposed_min = db.Column(db.Float, nullable=True)
     proposed_max = db.Column(db.Float, nullable=True)
     proposed_unit = db.Column(db.String(20), nullable=True)
+    proposed_field_path = db.Column(db.String(100), nullable=True)  # NEW
 
     status = db.Column(db.String(10), nullable=False, default=ProposalStatus.PENDING.value)
 
