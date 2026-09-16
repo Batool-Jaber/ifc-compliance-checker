@@ -472,3 +472,40 @@ $("ask-btn").addEventListener("click", async () => {
     answerBox.textContent = `Error: ${err.message}`;
   }
 });
+
+// ---------- Conditions reference panel (always visible, NEW) ----------
+function formatRequiredValue(c) {
+  if (c.type === "range") {
+    return `${c.min_value}${c.unit} \u2013 ${c.max_value}${c.unit}`;
+  }
+  return `\u2265 ${c.threshold} ${c.unit}`;
+}
+
+function renderConditionsReference(conditions) {
+  const container = $("conditions-reference-cards");
+  container.innerHTML = conditions.map((c) => `
+    <div class="condition-card">
+      <h3>${c.title}</h3>
+      <div class="values mono">Required: ${formatRequiredValue(c)}</div>
+      <div class="text-block">
+        <span class="text-block__label">Description</span>
+        ${c.description || "—"}
+      </div>
+    </div>
+  `).join("");
+}
+
+async function loadConditionsReference() {
+  try {
+    const res = await fetch("/api/conditions");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to load conditions");
+    renderConditionsReference(data.conditions || []);
+  } catch (err) {
+    console.warn("Conditions reference unavailable:", err.message);
+  }
+}
+
+// Loaded once immediately -- this panel is always visible, independent
+// of whether a compliance check has been run yet.
+loadConditionsReference();
