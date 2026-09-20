@@ -30,7 +30,7 @@ Design notes
   history (approved, rejected, and pending) for a given condition on
   its own, without needing the audit log at all.
 
-- `field_path` (NEW): which extracted IFC value (see
+- `field_path`: which extracted IFC value (see
   validation/field_paths.py::KNOWN_FIELD_PATHS) this condition is
   checked against by the generic engine (validation/generic_engine.py).
   Nullable because the 3 ORIGINAL conditions don't use it -- they're
@@ -40,6 +40,38 @@ Design notes
   going forward (routes/conditions.py::propose_new_condition) requires
   it -- enforced in services/validation.py, not at the DB level, since
   "required" depends on which condition this is, not a fixed rule.
+
+- REOPEN WORKFLOW (NEW): a rejected proposal is NEVER edited in place.
+  Reopening it (admin/services/proposal_service.py::reopen_proposal())
+  creates a BRAND NEW ConditionProposal row, copying the proposed
+  values, with status="pending" again. The original rejected row is
+  never touched again -- it stays a permanent, immutable historical
+  record. The new row links back via `reopened_from_id`, so the full
+  chain (rejected #1 -> reopened as #2 -> approved/rejected) is always
+  reconstructable without ever deleting or overwriting anything.
+  `engineer_notified_of_reopen` is a simple "unseen" flag: set True
+  when reopened, cleared to False the next time the submitting
+  engineer's admin.routes.proposals::my_proposals() page loads -- no
+  separate notifications system needed for this.
+
+  A reopened proposal (status still "pending", reopened_from_id set)
+  is the ONLY kind of proposal an engineer is allowed to edit directly
+  in place (admin/services/proposal_service.py::edit_reopened_proposal())
+  -- this is deliberately NOT allowed for an ordinary first-time
+  "pending" proposal, to avoid a race condition where an engineer edits
+  values while an admin is actively reviewing/testing the original
+  submission.
+
+- `ProposalNoteEditLog` (NEW): tracks edits to `review_note` made
+  AFTER a proposal has already been approved or rejected (i.e. after a
+  final decision). This is intentionally a SEPARATE, small table from
+  `AuditLog` -- AuditLog tracks changes to a LIVE Condition's fields;
+  this tracks changes to a review comment on a proposal, which may not
+  even have an associated Condition (e.g. a rejected "new condition"
+  proposal). Edits to a proposal's PROPOSED values before a decision
+  is made (via edit_reopened_proposal(), reopened case only) are NOT
+  logged here -- those are still a draft under review, not a final,
+  audited decision.
 """
 
 from datetime import datetime, timezone
@@ -157,8 +189,8 @@ class Condition(db.Model):
     max_value = db.Column(db.Float, nullable=True)   # used when type == "range"
     unit = db.Column(db.String(20), nullable=False)
 
-    # NEW -- see module docstring. Nullable: the 3 original conditions
-    # don't use it (their own hardcoded functions check them instead).
+    # Nullable: the 3 original conditions don't use it (their own
+    # hardcoded functions check them instead).
     field_path = db.Column(db.String(100), nullable=True)
 
     updated_at = db.Column(db.DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
@@ -184,6 +216,9 @@ class ConditionProposal(db.Model):
     """
     An engineer's request to create a new condition or change an
     existing one. Nothing here is "live" until an admin approves it.
+
+    See module docstring's "REOPEN WORKFLOW" note for reopened_from_id /
+    reopened_by / reopened_at / engineer_notified_of_reopen.
     """
 
     __tablename__ = "condition_proposals"
@@ -208,7 +243,7 @@ class ConditionProposal(db.Model):
     proposed_min = db.Column(db.Float, nullable=True)
     proposed_max = db.Column(db.Float, nullable=True)
     proposed_unit = db.Column(db.String(20), nullable=True)
-    proposed_field_path = db.Column(db.String(100), nullable=True)  # NEW
+    proposed_field_path = db.Column(db.String(100), nullable=True)
 
     status = db.Column(db.String(10), nullable=False, default=ProposalStatus.PENDING.value)
 
@@ -219,7 +254,25 @@ class ConditionProposal(db.Model):
     reviewed_at = db.Column(db.DateTime, nullable=True)
     review_note = db.Column(db.Text, nullable=True)
 
+    # --- NEW: reopen workflow (see module docstring) ---
+    # Points to the ORIGINAL rejected proposal this row was reopened
+    # from. NULL for every ordinary (non-reopened) proposal. Self-
+    # referential FK, so the full reopen chain is always traceable.
+    reopened_from_id = db.Column(
+        db.Integer, db.ForeignKey("condition_proposals.id"), nullable=True
+    )
+    reopened_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    reopened_at = db.Column(db.DateTime, nullable=True)
+    # "Unseen" flag -- True right after an admin reopens this proposal,
+    # cleared to False the next time the submitting engineer's
+    # my-proposals page loads. Not a general notifications system --
+    # just enough to make sure the engineer notices the reopen.
+    engineer_notified_of_reopen = db.Column(db.Boolean, nullable=False, default=False)
+
     condition = db.relationship("Condition", back_populates="proposals")
+    reopened_from = db.relationship(
+        "ConditionProposal", remote_side=[id], foreign_keys=[reopened_from_id]
+    )
 
     __table_args__ = (
         db.CheckConstraint("proposal_type IN ('new', 'edit')", name="ck_proposals_type_valid"),
@@ -257,3 +310,34 @@ class AuditLog(db.Model):
 
     def __repr__(self) -> str:
         return f"<AuditLog #{self.id} {self.field_changed}: {self.old_value} -> {self.new_value}>"
+
+
+class ProposalNoteEditLog(db.Model):
+    """
+    NEW. Tracks edits made to a proposal's `review_note` AFTER a final
+    decision (approved/rejected) has already been recorded -- see
+    module docstring for why this is separate from AuditLog.
+
+    Does NOT track edits to a reopened proposal's proposed VALUES
+    (title/threshold/etc.) before a decision -- that's still a draft
+    under review, not an audited final decision (see
+    proposal_service.py::edit_reopened_proposal()).
+    """
+
+    __tablename__ = "proposal_note_edit_log"
+
+    id = db.Column(db.Integer, primary_key=True)
+    proposal_id = db.Column(
+        db.Integer, db.ForeignKey("condition_proposals.id"), nullable=False
+    )
+    edited_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    edited_at = db.Column(db.DateTime, nullable=False, default=_utcnow)
+
+    old_note = db.Column(db.Text, nullable=True)
+    new_note = db.Column(db.Text, nullable=True)
+
+    proposal = db.relationship("ConditionProposal", foreign_keys=[proposal_id])
+    editor = db.relationship("User", foreign_keys=[edited_by])
+
+    def __repr__(self) -> str:
+        return f"<ProposalNoteEditLog #{self.id} on proposal #{self.proposal_id}>"
