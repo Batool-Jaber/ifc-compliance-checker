@@ -8,20 +8,35 @@
 <section class="panel panel--wide">
   <table class="report-table">
     <thead>
-      <tr><th>Item</th><th>Submitted</th><th>Status</th><th>Reviewed By</th><th>Note</th></tr>
+      <tr><th>Item</th><th>Submitted</th><th>Status</th><th>Reviewed By</th><th>Note</th><th></th></tr>
     </thead>
     <tbody>
       {% for p in proposals %}
       <tr>
-        <td>{{ "New: " ~ p.proposed_title if p.proposal_type == "new" else "Edit: " ~ p.condition.title }}</td>
+        <td>
+          {{ "New: " ~ p.proposed_title if p.proposal_type == "new" else "Edit: " ~ p.condition.title }}
+          {% if p.reopened_from_id %}
+            <br><span class="field__hint mono">reopened from proposal #{{ p.reopened_from_id }}</span>
+          {% endif %}
+        </td>
         <td class="mono">{{ p.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
-        <td class="mono" data-status="{{ p.status }}">{{ p.status }}</td>
+        <td class="mono" data-status="{{ p.status }}">
+          {{ p.status }}
+          {% if p.engineer_notified_of_reopen %}
+            <span class="badge" data-status="pending" style="margin-left:6px;">🔔 Reopened</span>
+          {% endif %}
+        </td>
         <td>{{ p.reviewer.username if p.reviewer else "—" }}</td>
         <td>{{ p.review_note or "—" }}</td>
+        <td>
+          {% if p.reopened_from_id and p.status == "pending" %}
+            <a href="{{ url_for('admin.edit_reopened_proposal_route', proposal_id=p.id) }}" class="btn btn--ghost">Edit</a>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
       {% if not proposals %}
-      <tr><td colspan="5" class="field__hint">You haven't submitted any proposals yet.</td></tr>
+      <tr><td colspan="6" class="field__hint">You haven't submitted any proposals yet.</td></tr>
       {% endif %}
     </tbody>
   </table>

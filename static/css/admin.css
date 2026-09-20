@@ -165,3 +165,38 @@
   width: auto;
   padding: 6px 8px;
 }
+
+
+
+
+/* ---------- "Recently Reviewed" table refinements (admin/proposals.html) ---------- */
+.reviewed-table td { vertical-align: top; padding-top: 10px; padding-bottom: 10px; }
+.reviewed-table th:nth-child(6) { width: 240px; }
+.reviewed-table th:nth-child(7) { width: 110px; }
+
+.proposal-note-form {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.note-textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  min-height: 32px;
+  max-height: 140px;
+  resize: vertical;
+  transition: min-height 0.15s ease;
+}
+.note-textarea:focus { min-height: 72px; }
+
+.note-save-btn {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  margin-top: 0;
+}
+
+.reopen-form { margin: 0; }

@@ -17,6 +17,9 @@
     <header class="proposal-card__header">
       <span class="proposal-card__type">
         {{ "New Condition" if p.proposal_type == "new" else "Edit: " ~ p.condition.title }}
+        {% if p.reopened_from_id %}
+          <span class="field__hint mono">(reopened from #{{ p.reopened_from_id }})</span>
+        {% endif %}
       </span>
       <span class="mono proposal-card__meta">
         by {{ p.submitter.username }} — {{ p.submitted_at.strftime('%Y-%m-%d %H:%M') }}
@@ -72,22 +75,43 @@
   {% endfor %}
 
   <h2>Recently Reviewed</h2>
-  <table class="report-table">
+  <table class="report-table reviewed-table">
     <thead>
-      <tr><th>Item</th><th>Submitted By</th><th>Status</th><th>Reviewed By</th><th>When</th></tr>
+      <tr><th>Item</th><th>Submitted By</th><th>Status</th><th>Reviewed By</th><th>When</th><th>Note</th><th></th></tr>
     </thead>
     <tbody>
       {% for p in decided %}
       <tr>
-        <td>{{ "New: " ~ p.proposed_title if p.proposal_type == "new" else "Edit: " ~ p.condition.title }}</td>
+        <td>
+          {{ "New: " ~ p.proposed_title if p.proposal_type == "new" else "Edit: " ~ p.condition.title }}
+          {% if p.reopened_from_id %}
+            <br><span class="field__hint mono">reopened from #{{ p.reopened_from_id }}</span>
+          {% endif %}
+        </td>
         <td>{{ p.submitter.username }}</td>
         <td class="mono" data-status="{{ p.status }}">{{ p.status }}</td>
         <td>{{ p.reviewer.username if p.reviewer else "—" }}</td>
         <td class="mono">{{ p.reviewed_at.strftime('%Y-%m-%d %H:%M') if p.reviewed_at else "—" }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('admin.edit_proposal_note', proposal_id=p.id) }}" class="proposal-note-form">
+            <textarea name="review_note" class="text-input mono note-textarea">{{ p.review_note or '' }}</textarea>
+            <button type="submit" class="btn btn--ghost note-save-btn">Save</button>
+          </form>
+        </td>
+        <td>
+          {% if p.status == "rejected" %}
+          <form method="POST" action="{{ url_for('admin.reopen_proposal_route', proposal_id=p.id) }}" class="reopen-form"
+                data-confirm-title="Reopen Proposal"
+                data-confirm-label="Reopen"
+                data-confirm-message="Reopen this for the engineer to edit and resubmit? The original rejected record stays unchanged.">
+            <button type="submit" class="btn btn--primary" style="width:auto;">Reopen</button>
+          </form>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
       {% if not decided %}
-      <tr><td colspan="5" class="field__hint">Nothing reviewed yet.</td></tr>
+      <tr><td colspan="7" class="field__hint">Nothing reviewed yet.</td></tr>
       {% endif %}
     </tbody>
   </table>
