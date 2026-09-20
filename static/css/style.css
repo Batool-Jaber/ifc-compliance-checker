@@ -404,3 +404,40 @@ body {
   font-size: 0.83rem;
   line-height: 1.6;
 }
+
+
+
+/* ---------- Collapsible section (Conditions reference panel) ---------- */
+.panel__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--grid-line);
+  background: #fff;
+  color: var(--ink);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.panel__toggle:hover { background: var(--grey-light); }
+.panel__toggle-icon {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.2s ease;
+}
+.panel__toggle[aria-expanded="true"] .panel__toggle-icon { transform: rotate(180deg); }
+
+.collapsible {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s ease;
+}
+.collapsible[data-expanded="true"] { grid-template-rows: 1fr; }
+.collapsible__inner { overflow: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  .collapsible { transition: none; }
+  .panel__toggle-icon { transition: none; }
+}

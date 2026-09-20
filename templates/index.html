@@ -34,15 +34,24 @@
 
 <main class="sheet">
 
-  <section class="panel panel--wide" id="conditions-reference-panel">
-    <h2>Conditions <span class="optional-tag">reference</span></h2>
-    <p class="ask-hint">
-      Every condition currently checked when you run a compliance check &mdash;
-      built-in and any admin-approved additions.
-    </p>
-    <div class="condition-cards" id="conditions-reference-cards"></div>
+ <section class="panel panel--wide" id="conditions-reference-panel">
+    <div class="panel__header-row">
+      <h2>Conditions <span class="optional-tag">reference</span></h2>
+      <button type="button" class="panel__toggle" id="conditions-toggle" aria-expanded="false" aria-controls="conditions-collapsible">
+        <span id="conditions-toggle-label">Show</span>
+        <svg class="panel__toggle-icon" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="collapsible" id="conditions-collapsible" data-expanded="false">
+      <div class="collapsible__inner">
+        <p class="ask-hint">
+          Every condition currently checked when you run a compliance check &mdash;
+          built-in and any admin-approved additions.
+        </p>
+        <div class="condition-cards" id="conditions-reference-cards"></div>
+      </div>
+    </div>
   </section>
-
   <section class="panel" id="model-panel">
     <h2>Model</h2>
     <div class="scenario-row">

@@ -506,6 +506,15 @@ async function loadConditionsReference() {
   }
 }
 
-// Loaded once immediately -- this panel is always visible, independent
-// of whether a compliance check has been run yet.
+// Toggle open/closed — collapsed by default on every page load.
+$("conditions-toggle").addEventListener("click", () => {
+  const collapsible = $("conditions-collapsible");
+  const btn = $("conditions-toggle");
+  const isExpanded = collapsible.dataset.expanded === "true";
+
+  collapsible.dataset.expanded = String(!isExpanded);
+  btn.setAttribute("aria-expanded", String(!isExpanded));
+  $("conditions-toggle-label").textContent = isExpanded ? "Show" : "Hide";
+});
+
 loadConditionsReference();
