@@ -200,3 +200,62 @@
 }
 
 .reopen-form { margin: 0; }
+/* ---------- Help page (admin/help.html) ---------- */
+.help-loading:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 16px;
+}
+.help-loading .loader { width: 20px; height: 20px; border-width: 2px; }
+.help-loading__text {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--grey);
+}
+
+.help-error {
+  color: var(--red);
+  font-size: 0.85rem;
+  margin: 4px 0 16px;
+}
+
+.help-llm-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0px;
+}
+.help-llm-label { font-size: 0.8rem; color: var(--grey); }
+
+.help-history { display: flex; flex-direction: column; gap: 18px; }
+.help-entry { padding-top: 14px; border-top: 1px dashed var(--grid-line); }
+.help-entry:first-child { padding-top: 0; border-top: none; }
+.help-entry__question { font-size: 0.82rem; color: var(--ink); margin-bottom: 8px; }
+.help-entry .retrieval-card { margin-bottom: 12px; }
+
+.help-score { color: var(--blue); font-size: 0.72rem; margin-left: 8px; }
+
+/* Reuses the same neutral/"insufficient info" semantic as
+   [data-status="CANNOT_BE_EVALUATED"] elsewhere in the app -- a
+   no-match is a missing-information state, not an error. */
+.help-no-match {
+  background: var(--grey-light);
+  border-left: 3px solid var(--grey);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.help-no-match__title { font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+.help-no-match__text { font-size: 0.85rem; color: var(--grey); margin: 0 0 10px; }
+.help-examples { display: flex; flex-wrap: wrap; gap: 8px; }
+.help-example-chip {
+  border: 1px solid var(--grid-line);
+  background: #fff;
+  color: var(--ink);
+  padding: 6px 10px;
+  border-radius: 12px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.help-example-chip:hover { background: var(--blue-light); border-color: var(--blue); }

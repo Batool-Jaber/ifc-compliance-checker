@@ -33,6 +33,7 @@
       <a href="{{ url_for('admin.users_list') }}" class="admin-nav__link">Users</a>
     {% elif current_user.role == Role.ENGINEER.value %}
       <a href="{{ url_for('admin.my_proposals') }}" class="admin-nav__link">My Proposals</a>
+      <a href="{{ url_for('admin.help_page') }}" class="admin-nav__link">Help</a>
     {% endif %}
 
     <a href="{{ url_for('admin.logout') }}" class="admin-nav__link admin-nav__link--logout">
