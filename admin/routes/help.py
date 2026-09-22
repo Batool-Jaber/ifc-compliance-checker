@@ -1,71 +1,55 @@
 """
 admin/routes/help.py
 ======================
-Engineer-only "Help" page: a free-form question box answered from
-knowledge_base/help/engineer_guide.md via embeddings search (see
-rag/vector_store.py), with an optional local-LLM rephrased answer
-(see rag/llm_help_advisor.py) the engineer can toggle on/off.
-"""
+Engineer-only "Help" page: a free-form question box answered from the
+unified Chroma collection (rag/vector_db.py), scoped to
+audience_role="engineer" (so it can see anything marked "engineer" or
+"all", never "admin"-only content like the building-code regulations
+or, previously, an admin-only slice of the materials register --
+none of that currently exists, but the filtering is real and
+enforced at query time regardless), plus an optional local-LLM
+rephrased answer (see rag/llm_help_advisor.py) the engineer can
+toggle on/off.
 
-from pathlib import Path
+Previously this route built its own private, in-memory, per-process
+index (_get_help_index() over rag/chunking.py::load_and_chunk() +
+rag/vector_store.py) reading ONLY knowledge_base/help/engineer_guide.md.
+That has been retired: this route now queries the SAME unified
+collection every other RAG-backed part of this project uses
+(rag/migrate_to_chroma.py populates it from building_conditions,
+engineer_guide, building_code, and materials_register). Practically,
+for an engineer's question, this means the Help Assistant can now also
+surface a relevant materials_register product (audience_role
+"engineer") in addition to engineer_guide sections -- not just guide
+text -- since both are visible to the engineer role in the unified
+store.
+
+CONFIDENCE_THRESHOLD is UNCHANGED from before this migration -- the
+score is cosine similarity from the same embeddings model
+(all-MiniLM-L6-v2) either way; empirically confirmed identical
+(0.5424) for the same test question before and after the Chroma
+migration, so the previously-tuned value stays valid.
+"""
 
 from flask import jsonify, render_template, request
 
 from admin import admin_bp
 from admin.decorators import role_required
 from admin.models import Role
-from rag.chunking import load_and_chunk
 from rag.llm_help_advisor import answer_help_question
-from rag.vector_store import build_index, search as embedding_search
+from rag.vector_db import search as unified_search
 
-HELP_KB_PATH = Path("knowledge_base/help/engineer_guide.md")
-
-# CONFIDENCE_THRESHOLD, tuned from real test data (12 manually-run
-# questions, see project handoff doc / test table): the lowest
-# confirmed-correct match scored 0.5476, the highest confirmed-incorrect
-# match (including in-scope questions that matched the WRONG section --
-# see the known retrieval-quality limitation note below) scored 0.4774.
-# 0.52 sits in that gap and separates all 12 test cases correctly.
-#
-# CAVEAT: 12 questions is a small sample -- this is not a mathematically
-# guaranteed boundary for all future questions, just the best value
-# supported by real data so far. Revisit if real engineer usage produces
-# borderline scores (roughly 0.48-0.55) that get misclassified.
-#
-# KNOWN LIMITATION (not fixed by this threshold): two questions clearly
-# IN-SCOPE ("How do I propose a new condition?", "What does the Checks
-# against dropdown do?") matched the WRONG section instead of the right
-# one, because engineer_guide.md has multiple sections that are
-# semantically close (e.g. "Proposing a brand-new condition" vs. "I
-# proposed a new condition but I don't see it yet"). Raising the
-# threshold happens to reject both of these too (their scores were
-# 0.502 and 0.4228), but that's incidental, not a real fix -- the
-# underlying retrieval-quality issue is deferred, same bucket as the
-# project's broader "RAG differentiation" backlog item (decoy
-# conditions, section disambiguation), not part of this feature.
+# NOTE: this value is tuned from real test data (12 manually-run
+# questions against the pre-migration engineer_guide-only index -- see
+# project handoff docs for the full table). The lowest confirmed-correct
+# match scored 0.5476, the highest confirmed-incorrect match scored
+# 0.4774; 0.52 sits in that gap. CAVEAT: small sample, and this now also
+# gates materials_register results (not just engineer_guide) -- revisit
+# if real usage on the newly-included source produces misclassified
+# borderline scores.
 CONFIDENCE_THRESHOLD = 0.52
 
 NO_MATCH_MESSAGE = "I couldn't find anything in the guide closely related to that question."
-
-# ---------------------------------------------------------------------------
-# Embeddings index cache
-# ---------------------------------------------------------------------------
-# engineer_guide.md is a static file with no edit UI, so its chunk
-# embeddings never change while the process is running. Mirroring the
-# exact lazy-singleton pattern rag/embeddings.py already uses for the
-# sentence-transformers model itself (_model = None, loaded once on
-# first use), we build this index once per process and reuse it for
-# every question -- instead of re-embedding all ~20 sections on every
-# single request.
-_help_index = None
-
-
-def _get_help_index() -> dict:
-    global _help_index
-    if _help_index is None:
-        chunks = load_and_chunk(HELP_KB_PATH)
-        _help_index = build_index(chunks)
-    return _help_index
 
 
 @admin_bp.route("/help")
@@ -77,6 +61,14 @@ def help_page():
 @admin_bp.route("/help/ask", methods=["POST"])
 @role_required(Role.ENGINEER.value)
 def help_ask():
+    """
+    Queries the unified Chroma collection, scoped to
+    audience_role="engineer" (sees "engineer" + "all" content, never
+    "admin"-only). If the top match's similarity score is below
+    CONFIDENCE_THRESHOLD, returns NO_MATCH_MESSAGE instead of calling
+    the LLM on an unrelated section -- avoids a confidently-worded
+    answer grounded in the wrong context.
+    """
     data = request.get_json(force=True) or {}
     question = data.get("question", "").strip()
     use_llm = bool(data.get("use_llm", False))
@@ -84,13 +76,10 @@ def help_ask():
     if not question:
         return jsonify({"error": "Question is empty."}), 400
 
-    index = _get_help_index()
-    if not index["chunks"]:
-        return jsonify({"error": "The help guide has no content to search."}), 500
+    results = unified_search(question, top_k=1, audience_role="engineer")
 
-    results = embedding_search(question, index, top_k=1)
     if not results:
-        return jsonify({"error": "No matching section was found for that question."}), 404
+        return jsonify({"error": "The knowledge base has no content to search."}), 500
 
     best = results[0]
 
