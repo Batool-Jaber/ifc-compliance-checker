@@ -24,3 +24,7 @@ tests/fixtures/*.ifc
 data/uploaded/*.ifc
 
 instance/
+
+chroma_db/
+
+knowledge_base/materials/*.pdf
