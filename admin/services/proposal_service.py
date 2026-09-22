@@ -12,8 +12,8 @@ existing condition" path funnel through it, and both log every changed
 field to `AuditLog` via the same helper -- so the two flows can never
 produce a differently-shaped audit trail.
 
-REOPEN WORKFLOW (NEW -- see admin/models.py's module docstring for the
-full design rationale):
+REOPEN WORKFLOW (see admin/models.py's module docstring for the full
+design rationale):
   - reopen_proposal() NEVER edits a rejected proposal in place. It
     creates a brand new ConditionProposal row, copying the proposed
     values, status back to "pending". The original rejected row is
@@ -32,6 +32,14 @@ full design rationale):
     review_note on an ALREADY-DECIDED proposal (approved or rejected),
     and logs the edit to ProposalNoteEditLog (a small, separate table
     from AuditLog -- see admin/models.py's docstring for why).
+
+RAG SYNC (NEW): approve_proposal() calls
+rag/migrate_to_chroma.py::sync_building_conditions() right after its
+own db.session.commit(), so the unified Chroma collection
+(rag/vector_db.py) never serves stale condition text after an
+approval. Re-syncs ALL conditions rather than just the one that
+changed -- see that function's docstring for why this is deliberate,
+not an oversight.
 """
 
 import re
@@ -48,6 +56,7 @@ from admin.models import (
     User,
 )
 from admin.services.validation import validate_condition_values
+from rag.migrate_to_chroma import sync_building_conditions
 
 # field_path added -- tracked/audited exactly like the other fields
 # (description, type, threshold, etc.)
@@ -176,6 +185,12 @@ def approve_proposal(
     proposal.review_note = review_note
 
     db.session.commit()
+
+    # Keep the unified Chroma collection in sync with the live
+    # `conditions` table -- see this function's docstring / module
+    # docstring for why ALL conditions are re-synced, not just this one.
+    sync_building_conditions()
+
     return condition
 
 
@@ -193,7 +208,7 @@ def reject_proposal(
 
 
 # ---------------------------------------------------------------------
-# Editing a review note AFTER a final decision (NEW)
+# Editing a review note AFTER a final decision
 # ---------------------------------------------------------------------
 
 def edit_review_note(
@@ -225,7 +240,7 @@ def edit_review_note(
 
 
 # ---------------------------------------------------------------------
-# Reopening a rejected proposal (NEW)
+# Reopening a rejected proposal
 # ---------------------------------------------------------------------
 
 def reopen_proposal(*, proposal: ConditionProposal, reopened_by: User) -> ConditionProposal:
@@ -293,7 +308,9 @@ def edit_reopened_proposal(
 
     No audit/log entry is written here -- this is still a draft under
     review, not an audited final decision (contrast with
-    edit_review_note(), which IS logged).
+    edit_review_note(), which IS logged). No RAG sync here either --
+    this proposal isn't live yet, only approve_proposal() writes into
+    Condition.
     """
     if proposal.reopened_from_id is None:
         raise ValueError("Only a reopened proposal can be edited directly -- not an ordinary pending proposal.")
