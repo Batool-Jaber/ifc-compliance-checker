@@ -61,6 +61,19 @@ from validation.deterministic_checks import run_all_checks
 from rag.chunking import load_and_chunk, build_chunks_from_conditions
 from rag.retriever import retrieve as keyword_retrieve
 from rag.vector_store import build_index, search as embedding_search
+# DELIBERATE: this module keeps using the isolated in-memory
+# vector_store.py index (NOT the unified Chroma store), even though
+# building_conditions data IS also synced into Chroma (see
+# admin/services/proposal_service.py::approve_proposal()). Reason:
+# this citation mechanism must guarantee zero cross-source
+# contamination -- a query here must only ever match an actual
+# compliance condition, never a semantically-similar article from
+# building_code_regulations.pdf (a real, confirmed risk: the
+# regulations doc contains an article with a name close enough to
+# "Minimum Room Area" to plausibly out-score the real condition in a
+# unified similarity search). The unified store is for open-domain
+# Q&A (Help Assistant and future admin-advisory features), not for
+# this deterministic tool's internal citation lookup.
 from rag.llm_narration import narrate
 
 # Used only when run_pipeline() is called with conditions=None (the

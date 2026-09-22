@@ -24,10 +24,31 @@ from rag.compare_retrieval import run_comparison
 from rag.llm_advisor import ask_about_report
 from rag.chunking import load_and_chunk, build_chunks_from_conditions
 from rag.retriever import explain as keyword_explain
-from rag.vector_store import build_index, search as embedding_search
 from admin import init_admin
 from admin.decorators import login_required, get_current_user
 from admin.models import Condition, Role
+# DELIBERATE: this module keeps using the isolated in-memory
+# vector_store.py index (NOT the unified Chroma store in
+# rag/vector_db.py), even though building_conditions data IS also
+# synced into the unified Chroma collection (see
+# admin/services/proposal_service.py::approve_proposal() ->
+# rag/migrate_to_chroma.py::sync_building_conditions()). Reason: this
+# citation mechanism must guarantee ZERO cross-source contamination --
+# a query here must only ever match an actual compliance condition,
+# never a semantically-similar article from
+# knowledge_base/regulations/building_code_regulations.md. This is not
+# a hypothetical risk: that document contains an article whose name is
+# close enough to "Minimum Room Area" that it could plausibly out-score
+# the real condition in a unified similarity search across all 4
+# sources. The unified Chroma store is for open-domain, multi-source
+# Q&A (the engineer-facing Help Assistant today; a future admin-facing
+# advisory feature per roadmap "idea 4.5"), never for this
+# deterministic tool's internal citation lookup, which must stay
+# scoped to compliance conditions ONLY.
+from rag.vector_store import build_index, search as embedding_search
+
+
+
 
 app = Flask(__name__)
 
