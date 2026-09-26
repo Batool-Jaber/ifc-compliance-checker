@@ -75,6 +75,9 @@
   justify-content: center;
   z-index: 1000;
 }
+.admin-modal-overlay[hidden] {
+  display: none;
+}
 .admin-modal {
   background: var(--paper);
   border: 1px solid var(--ink);
@@ -259,3 +262,106 @@
   cursor: pointer;
 }
 .help-example-chip:hover { background: var(--blue-light); border-color: var(--blue); }
+
+
+
+
+/* ---------- Safe Proposal Tester (admin/proposals.html) ---------- */
+.proposal-tester { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--grid-line); }
+.proposal-tester__controls { display: flex; gap: 10px; align-items: center; }
+.proposal-tester__controls select.text-input { width: auto; padding: 8px 10px; }
+.proposal-tester__toggle { margin-top: 10px; }
+.proposal-tester__results { display: grid; gap: 8px; margin-top: 10px; }
+
+.proposal-tester-result {
+  border: 1px solid var(--grid-line);
+  border-left: 3px solid var(--grey);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 0.85rem;
+}
+.proposal-tester-result[data-status="PASS"] { border-left-color: var(--green); }
+.proposal-tester-result[data-status="FAIL"] { border-left-color: var(--red); }
+.proposal-tester-result__title { font-weight: 600; margin-bottom: 4px; display: flex; justify-content: space-between; }
+.proposal-tester-result__status { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--grey); }
+.proposal-tester-result[data-status="PASS"] .proposal-tester-result__status { color: var(--green); }
+.proposal-tester-result[data-status="FAIL"] .proposal-tester-result__status { color: var(--red); }
+.proposal-tester-result__values { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--grey); margin: 4px 0; }
+.proposal-tester-result__explanation { color: var(--ink); font-size: 0.82rem; }
+
+.proposal-tester__overall {
+  margin-top: 10px;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 0.82rem;
+  display: inline-block;
+}
+.proposal-tester__overall[data-status="PASS"] { background: var(--green-light); color: var(--green); }
+.proposal-tester__overall[data-status="FAIL"] { background: var(--red-light); color: var(--red); }
+.proposal-tester__overall[data-status="CANNOT_BE_EVALUATED"] { background: var(--grey-light); color: var(--grey); }
+
+.proposal-tester__error { color: var(--red); font-size: 0.85rem; margin-top: 10px; }
+
+
+
+/* ---------- Building Code Advisory (admin/proposals.html) ---------- */
+.code-advisory { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--grid-line); }
+.code-advisory__results { margin-top: 10px; display: grid; gap: 10px; }
+
+.code-advisory__badge {
+  display: inline-block;
+  background: var(--grey-light);
+  color: var(--grey);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.code-advisory-match {
+  border: 1px solid var(--grid-line);
+  border-left: 3px solid var(--blue);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 0.85rem;
+}
+.code-advisory-match__title { font-weight: 600; margin-bottom: 4px; }
+.code-advisory-match__meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--grey); margin-bottom: 6px; }
+.code-advisory-match__text { color: var(--ink); font-size: 0.82rem; }
+
+.code-advisory__empty { color: var(--grey); font-size: 0.85rem; }
+.code-advisory__error { color: var(--red); font-size: 0.85rem; margin-top: 10px; }
+
+
+
+/* ---------- Custom file upload button (admin/knowledge_upload.html) ---------- */
+.file-upload {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.file-upload__input {
+  /* Hidden but still fully functional -- clicked programmatically via
+     the visible .btn trigger, and still submits normally as part of
+     the form (never display:none on the input itself in a way that
+     would break form submission -- this uses the standard visually-
+     hidden pattern instead). */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.file-upload__name {
+  font-size: 0.85rem;
+  color: var(--grey);
+  font-family: 'IBM Plex Mono', monospace;
+}

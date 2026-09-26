@@ -1,0 +1,49 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Review Upload{% endblock %}
+{% block header_title %}Review Upload{% endblock %}
+{% block header_subtitle %}Nothing has been added to the knowledge base yet{% endblock %}
+
+{% block content %}
+<section class="panel panel--wide">
+  <h2>{{ original_filename }} &rarr; "{{ source_name }}"</h2>
+  <p class="field__hint mono">
+    {{ stats.section_count }} section(s) found
+    {% if stats.avg_length %} · avg {{ stats.avg_length }} chars (min {{ stats.min_length }}, max {{ stats.max_length }}){% endif %}
+  </p>
+
+  {% if warnings %}
+  <div class="flash-banner" data-kind="error" style="text-align:left; border-radius: var(--radius);">
+    <strong>{{ warnings|length }} warning(s) found — review before confirming:</strong>
+    <ul>
+      {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% else %}
+  <p class="field__hint" style="color: var(--green);">No quality issues detected.</p>
+  {% endif %}
+
+  <h3>Sections found</h3>
+  <ul class="mono">
+    {% for title in chunk_titles %}<li>{{ title }}</li>{% endfor %}
+  </ul>
+
+  <div class="report-actions">
+    <form method="POST" action="{{ url_for('admin.knowledge_upload_confirm') }}"
+          data-confirm-title="Add to Knowledge Base"
+          data-confirm-label="Add"
+          data-confirm-message="Add '{{ source_name }}' to the shared knowledge base now? It becomes searchable immediately.">
+      <input type="hidden" name="pending_filename" value="{{ pending_filename }}">
+      <input type="hidden" name="original_filename" value="{{ original_filename }}">
+      <input type="hidden" name="source_name" value="{{ source_name }}">
+      <input type="hidden" name="split_mode" value="{{ split_mode }}">
+      <input type="hidden" name="audience_role" value="{{ audience_role }}">
+      <button type="submit" class="btn btn--primary">Confirm &amp; Add to Knowledge Base</button>
+    </form>
+    <form method="POST" action="{{ url_for('admin.knowledge_upload_cancel') }}">
+      <input type="hidden" name="pending_filename" value="{{ pending_filename }}">
+      <button type="submit" class="btn btn--ghost">Cancel</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

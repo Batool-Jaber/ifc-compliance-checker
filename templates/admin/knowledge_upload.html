@@ -1,0 +1,62 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Upload Knowledge{% endblock %}
+{% block header_title %}Upload Knowledge{% endblock %}
+{% block header_subtitle %}Add a new Markdown source to the shared knowledge base{% endblock %}
+
+{% block content %}
+<section class="panel panel--wide">
+  <h2>Upload a Markdown file</h2>
+  <form method="POST" action="{{ url_for('admin.knowledge_upload_preview') }}" enctype="multipart/form-data" class="login-form">
+      <label class="field">
+      <span class="field__label">File (.md)</span>
+      <div class="file-upload">
+        <button type="button" class="btn btn--ghost file-upload__trigger">Choose File</button>
+        <span class="file-upload__name" id="file-upload-name">No file chosen</span>
+        <input type="file" name="file" accept=".md" required class="file-upload__input" id="file-upload-input">
+      </div>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Source name</span>
+      <input type="text" name="source_name" class="text-input" placeholder="e.g. fire_safety_addendum" required>
+      <span class="field__hint">Used internally to identify this source in the knowledge base. Must be unique.</span>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Structure</span>
+      <select name="split_mode" class="text-input" required>
+        <option value="">Choose…</option>
+        <option value="single_level">Single-level ("## " section headers)</option>
+        <option value="two_level">Two-level ("## Chapter" + "### Article")</option>
+      </select>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Visible to</span>
+      <select name="audience_role" class="text-input" required>
+        <option value="">Choose…</option>
+        <option value="engineer">Engineer</option>
+        <option value="admin">Admin</option>
+        <option value="all">Everyone (admin + engineer + viewer)</option>
+      </select>
+    </label>
+
+    <button type="submit" class="btn btn--primary">Preview &amp; Check Quality</button>
+  </form>
+</section>
+{% endblock %}
+
+
+{% block extra_scripts %}
+<script>
+  const fileInput = document.getElementById("file-upload-input");
+  const fileTrigger = document.querySelector(".file-upload__trigger");
+  const fileNameLabel = document.getElementById("file-upload-name");
+
+  fileTrigger.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    fileNameLabel.textContent = fileInput.files.length ? fileInput.files[0].name : "No file chosen";
+  });
+</script>
+{% endblock %}

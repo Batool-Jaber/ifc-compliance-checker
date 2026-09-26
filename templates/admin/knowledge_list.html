@@ -1,0 +1,64 @@
+{% extends "admin/base_admin.html" %}
+
+{% block title %}Knowledge Sources{% endblock %}
+{% block header_title %}Knowledge Sources{% endblock %}
+{% block header_subtitle %}Every Markdown source uploaded through the admin panel{% endblock %}
+
+{% block content %}
+<section class="panel panel--wide">
+  <div class="panel__header-row">
+    <h2>Uploaded Sources ({{ documents|length }})</h2>
+    <a href="{{ url_for('admin.knowledge_upload_form') }}" class="btn btn--ghost">+ Upload New</a>
+  </div>
+
+  {% if not documents %}
+    <p class="field__hint">No documents uploaded yet.</p>
+  {% endif %}
+
+  <table class="report-table">
+    <thead>
+      <tr>
+        <th>Source</th>
+        <th>Structure</th>
+        <th>Sections</th>
+        <th>Uploaded</th>
+        <th>Visible to</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for doc in documents %}
+      <tr>
+        <td>
+          {{ doc.source_name }}
+          <br><span class="field__hint mono">{{ doc.original_filename }}</span>
+        </td>
+        <td class="mono">{{ "Single-level" if doc.split_mode == "single_level" else "Two-level" }}</td>
+        <td class="mono">{{ doc.chunk_count }}</td>
+        <td class="mono">
+          {{ doc.uploaded_at.strftime('%Y-%m-%d %H:%M') }}<br>by {{ doc.uploader.username }}
+        </td>
+        <td>
+          <form method="POST" action="{{ url_for('admin.knowledge_edit_role', doc_id=doc.id) }}" class="user-role-form">
+            <select name="audience_role" class="text-input">
+              <option value="engineer" {% if doc.audience_role == "engineer" %}selected{% endif %}>Engineer</option>
+              <option value="admin" {% if doc.audience_role == "admin" %}selected{% endif %}>Admin</option>
+              <option value="all" {% if doc.audience_role == "all" %}selected{% endif %}>Everyone</option>
+            </select>
+            <button type="submit" class="btn btn--ghost note-save-btn">Save</button>
+          </form>
+        </td>
+        <td>
+          <form method="POST" action="{{ url_for('admin.knowledge_delete', doc_id=doc.id) }}"
+                data-confirm-title="Delete Knowledge Source"
+                data-confirm-label="Delete"
+                data-confirm-message="Permanently delete '{{ doc.source_name }}'? This removes it from search results immediately and cannot be undone.">
+            <button type="submit" class="btn btn--ghost" style="color: var(--red);">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
