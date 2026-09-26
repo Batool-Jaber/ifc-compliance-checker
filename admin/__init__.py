@@ -6,9 +6,9 @@ exposes `init_admin(app)` as the ONE integration point the main app.py
 needs to call.
 
 Route modules (routes/auth.py, conditions.py, proposals.py, users.py,
-audit.py, help.py) each attach their routes to `admin_bp` as a side
-effect of being imported below -- must stay imported AFTER admin_bp is
-defined.
+audit.py, help.py, knowledge.py) each attach their routes to `admin_bp`
+as a side effect of being imported below -- must stay imported AFTER
+admin_bp is defined.
 """
 
 from flask import Blueprint
@@ -31,7 +31,8 @@ from admin.routes import conditions  # noqa: E402,F401
 from admin.routes import proposals   # noqa: E402,F401
 from admin.routes import users       # noqa: E402,F401
 from admin.routes import audit       # noqa: E402,F401
-from admin.routes import help        # noqa: E402,F401  (NEW -- Help Assistant page)
+from admin.routes import help        # noqa: E402,F401
+from admin.routes import knowledge   # noqa: E402,F401  (NEW -- knowledge upload)
 
 
 @admin_bp.context_processor
