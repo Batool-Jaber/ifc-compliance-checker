@@ -2,45 +2,37 @@
 rag/vector_db.py
 =================
 Unified persistent vector store for ALL RAG sources in this project
-(building_conditions, engineer_guide, and later the building-code
-regulations document) -- replaces the old in-memory rag/vector_store.py.
+(building_conditions, engineer_guide, building_code, materials_register)
+-- used for open-domain, multi-source Q&A (Help Assistant today; future
+admin-advisory features). NOT used by app.py/main.py's internal
+compliance-citation lookup, which deliberately keeps using the isolated
+rag/vector_store.py -- see app.py's own in-code comment for why.
 
-Design decisions (confirmed across multiple design reviews before any
-code was written -- see project handoff docs):
+Design decisions:
+- ONE Chroma collection for every source, NOT one per source.
+  Permission scoping (audience_role) is enforced via a `where` filter
+  at QUERY time, not physical separation. Deliberate: the metadata IS
+  the access-control mechanism being demonstrated, not incidental to
+  it. A max-security production system might prefer separate
+  collections as defense-in-depth -- consciously not chosen here.
+- Embeddings computed via the EXISTING rag/embeddings.py
+  (sentence-transformers, all-MiniLM-L6-v2), never Chroma's default
+  embedding function.
+- Collection explicitly created with hnsw:space="cosine". Chroma
+  defaults to squared L2 -- leaving this unset would silently make
+  every previously-tuned similarity score (CONFIDENCE_THRESHOLD=0.52)
+  meaningless.
 
-- ONE Chroma collection for every source, NOT one collection per
-  source. Permission scoping (audience_role) is enforced via a `where`
-  filter at QUERY time, not via physical separation between
-  collections. This is deliberate: the metadata IS the access-control
-  mechanism being demonstrated here, not incidental to it. A maximum-
-  security production system might prefer separate collections as
-  "defense in depth" -- that trade-off is CONSCIOUSLY not taken here,
-  since this project's goal is to demonstrate correct metadata-driven
-  permission-aware retrieval, not production-grade defense in depth.
-
-- Embeddings are computed via the EXISTING rag/embeddings.py
-  (sentence-transformers, all-MiniLM-L6-v2), never Chroma's own default
-  embedding function -- so indexing and querying always use the exact
-  same model this project already tested and tuned
-  help.py::CONFIDENCE_THRESHOLD against.
-
-- The collection is explicitly created with hnsw:space="cosine".
-  Chroma's default distance metric is squared L2, NOT cosine --
-  leaving this unset would silently make every previously-tuned
-  similarity score (including CONFIDENCE_THRESHOLD = 0.52) meaningless
-  after migration. This single setting is what keeps those numbers
-  valid going forward.
-
-Unified metadata schema (every chunk upserted here must follow this):
-    {
-        "source": "building_conditions" | "engineer_guide" | "building_code",
-        "doc_type": "condition" | "help_section" | "regulation_clause",
-        "condition_id": str | None,   # explicit FK to Condition.id; None for non-DB sources
-        "section_title": str,
-        "audience_role": "engineer" | "admin" | "all",  # "all" = admin+engineer+viewer
-        "page_number": int | None,    # only meaningful for the regulations doc
-        "chunk_index": int,           # position within its own source
-    }
+audience_role is a REQUIRED keyword-only argument on search() (no
+default, no Optional/None path) -- deliberately changed from an
+earlier `audience_role: str | None = None` signature. That version was
+"fail-open": a future caller that forgot to pass audience_role would
+silently get UNFILTERED results across every source and every
+permission level, rather than an error. Making it required forces any
+new caller (e.g. a future admin-advisory feature) to explicitly decide
+which role it's querying for at the call site, at write time --
+instead of a convenient-looking default silently reintroducing a
+leakage risk later.
 """
 
 import sys
@@ -59,12 +51,9 @@ _collection = None
 
 
 def get_collection():
-    """
-    Lazily opens/creates the single persistent Chroma collection, once
-    per process -- same singleton pattern already used by
-    rag/embeddings.py::get_model() and
-    admin/routes/help.py::_get_help_index().
-    """
+    """Lazily opens/creates the single persistent Chroma collection,
+    once per process -- same singleton pattern already used by
+    rag/embeddings.py::get_model()."""
     global _client, _collection
     if _collection is None:
         _client = chromadb.PersistentClient(path=str(_CHROMA_PATH))
@@ -79,13 +68,7 @@ def upsert_chunks(chunks: list[dict]) -> None:
     """
     Adds or updates chunks in the unified collection (add-or-replace by
     id, via Chroma's own upsert()). Each chunk dict must have:
-    {"id": str, "text": str, "metadata": {...}} -- see module docstring
-    for the required metadata fields.
-
-    Calling this again with an id that already exists REPLACES that
-    entry -- this is exactly what keeps the collection in sync when
-    admin/services/proposal_service.py::approve_proposal() calls it
-    after a live Condition changes (a future step, not yet wired up).
+    {"id": str, "text": str, "metadata": {...}}.
     """
     if not chunks:
         return
@@ -104,27 +87,22 @@ def upsert_chunks(chunks: list[dict]) -> None:
     )
 
 
-def search(query: str, top_k: int = 1, audience_role: str | None = None) -> list[dict]:
+def search(query: str, top_k: int = 1, *, audience_role: str) -> list[dict]:
     """
-    Returns the top_k most similar chunks to `query`, each with a
-    "score" key (cosine similarity, higher = more relevant -- same
-    meaning and same scale as the old rag/vector_store.py, thanks to
-    the explicit hnsw:space="cosine" setting above).
-
-    If audience_role is given, results are restricted server-side to
+    Returns the top_k most similar chunks to `query`, restricted to
     chunks where metadata audience_role == audience_role OR == "all" --
-    applied as a Chroma `where` filter BEFORE similarity ranking
-    (permission-aware retrieval), never as a post-hoc filter on
-    already-ranked results.
+    applied as a Chroma `where` filter BEFORE similarity ranking.
+
+    audience_role has NO default -- every caller must decide explicitly
+    which role it's querying for. See module docstring for why this is
+    deliberate, not an inconvenience.
     """
     collection = get_collection()
     if collection.count() == 0:
         return []
 
     query_vec = embed_text(query)
-    where = None
-    if audience_role is not None:
-        where = {"audience_role": {"$in": [audience_role, "all"]}}
+    where = {"audience_role": {"$in": [audience_role, "all"]}}
 
     result = collection.query(
         query_embeddings=[[float(x) for x in query_vec]],
@@ -137,18 +115,13 @@ def search(query: str, top_k: int = 1, audience_role: str | None = None) -> list
         result["ids"][0], result["documents"][0], result["metadatas"][0], result["distances"][0]
     ):
         chunks.append({
-            "id": cid,
-            "text": text,
-            "title": meta.get("section_title"),
-            "score": 1 - dist,  # cosine space: distance = 1 - similarity
-            "metadata": meta,
+            "id": cid, "text": text, "title": meta.get("section_title"),
+            "score": 1 - dist, "metadata": meta,
         })
     return chunks
 
 
 if __name__ == "__main__":
-    # Smoke test -- confirms Chroma + embeddings.py wiring works end to
-    # end, with zero dependency on Flask/the rest of the app.
     sample_chunks = [
         {
             "id": "test_1",
@@ -180,3 +153,56 @@ if __name__ == "__main__":
     print("\nQuery as admin (CAN see both):")
     for r in search("who can approve proposals", top_k=2, audience_role="admin"):
         print(f"  [{r['id']}] score={r['score']:.4f} -- {r['metadata']['audience_role']}")
+
+
+
+
+def update_audience_role(source: str, new_role: str) -> int:
+    """
+    Updates ONLY the audience_role metadata field on every chunk
+    belonging to `source`, leaving text/embeddings/every other
+    metadata field untouched. Used when an admin corrects a mistaken
+    "Visible to" choice after upload -- see
+    admin/routes/knowledge.py::knowledge_edit_role().
+
+    Chroma's collection.update() replaces the FULL metadata dict for
+    each given id, not a partial merge -- so each chunk's existing
+    metadata is fetched first, only audience_role is changed in that
+    dict, and the whole dict is written back. This avoids silently
+    dropping any other metadata field (section_title, chunk_index,
+    chapter_title, etc.) that a naive partial-update could lose.
+    """
+    collection = get_collection()
+    existing = collection.get(where={"source": source})
+
+    if not existing["ids"]:
+        return 0
+
+    updated_metadatas = []
+    for meta in existing["metadatas"]:
+        meta = dict(meta)
+        meta["audience_role"] = new_role
+        updated_metadatas.append(meta)
+
+    collection.update(ids=existing["ids"], metadatas=updated_metadatas)
+    return len(existing["ids"])
+
+
+def delete_source(source: str) -> int:
+    """
+    Permanently removes every chunk belonging to `source` from the
+    unified collection. Used when an admin deletes an uploaded
+    document -- see admin/routes/knowledge.py::knowledge_delete().
+    Does NOT touch the underlying .md file on disk or the
+    UploadedDocument DB row -- the caller is responsible for both,
+    same separation of concerns as everywhere else in this project
+    (this module only knows about the vector store).
+    """
+    collection = get_collection()
+    existing = collection.get(where={"source": source})
+    count = len(existing["ids"])
+
+    if count > 0:
+        collection.delete(where={"source": source})
+
+    return count
