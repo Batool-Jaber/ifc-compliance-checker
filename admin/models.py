@@ -41,7 +41,7 @@ Design notes
   it -- enforced in services/validation.py, not at the DB level, since
   "required" depends on which condition this is, not a fixed rule.
 
-- REOPEN WORKFLOW (NEW): a rejected proposal is NEVER edited in place.
+- REOPEN WORKFLOW: a rejected proposal is NEVER edited in place.
   Reopening it (admin/services/proposal_service.py::reopen_proposal())
   creates a BRAND NEW ConditionProposal row, copying the proposed
   values, with status="pending" again. The original rejected row is
@@ -62,9 +62,9 @@ Design notes
   values while an admin is actively reviewing/testing the original
   submission.
 
-- `ProposalNoteEditLog` (NEW): tracks edits to `review_note` made
-  AFTER a proposal has already been approved or rejected (i.e. after a
-  final decision). This is intentionally a SEPARATE, small table from
+- `ProposalNoteEditLog`: tracks edits to `review_note` made AFTER a
+  proposal has already been approved or rejected (i.e. after a final
+  decision). This is intentionally a SEPARATE, small table from
   `AuditLog` -- AuditLog tracks changes to a LIVE Condition's fields;
   this tracks changes to a review comment on a proposal, which may not
   even have an associated Condition (e.g. a rejected "new condition"
@@ -72,6 +72,15 @@ Design notes
   is made (via edit_reopened_proposal(), reopened case only) are NOT
   logged here -- those are still a draft under review, not a final,
   audited decision.
+
+- `UploadedDocument` (NEW): tracks every markdown knowledge-base file
+  uploaded dynamically through the admin panel
+  (rag/knowledge_upload.py), as opposed to the 4 original sources
+  (building_conditions, engineer_guide, building_code,
+  materials_register), each of which has its own hand-written
+  sync_*() function in rag/migrate_to_chroma.py. This row is the ONLY
+  durable record of "what dynamic sources exist" -- same "zero silent
+  data loss" principle as AuditLog/ProposalNoteEditLog.
 """
 
 from datetime import datetime, timezone
@@ -172,15 +181,8 @@ class User(db.Model):
 class Condition(db.Model):
     __tablename__ = "conditions"
 
-    # String PK (e.g. "room_area") rather than an auto-increment int --
-    # matches the existing app's convention of referring to conditions
-    # by a short slug, and keeps ids stable/readable in the audit log.
     id = db.Column(db.String(64), primary_key=True)
-
-    # PROTECTED -- see module docstring. Exactly one column, no legacy/
-    # display-title duplicate.
     title = db.Column(db.String(200), unique=True, nullable=False)
-
     description = db.Column(db.Text, nullable=False)
     type = db.Column(db.String(20), nullable=False)  # "minimum" | "range"
 
@@ -189,8 +191,6 @@ class Condition(db.Model):
     max_value = db.Column(db.Float, nullable=True)   # used when type == "range"
     unit = db.Column(db.String(20), nullable=False)
 
-    # Nullable: the 3 original conditions don't use it (their own
-    # hardcoded functions check them instead).
     field_path = db.Column(db.String(100), nullable=True)
 
     updated_at = db.Column(db.DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
@@ -225,17 +225,9 @@ class ConditionProposal(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
 
-    # Nullable: a "new condition" proposal has no existing condition to
-    # point to yet.
     condition_id = db.Column(db.String(64), db.ForeignKey("conditions.id"), nullable=True)
     proposal_type = db.Column(db.String(10), nullable=False)  # "new" | "edit"
 
-    # Proposed values. For "edit" the form pre-fills these with the
-    # condition's current values so the diff is explicit; for "new",
-    # all of these except proposed_title are effectively required
-    # (enforced in services/validation.py, not at the DB level, since
-    # which fields are required depends on proposed_type: "minimum" vs
-    # "range").
     proposed_title = db.Column(db.String(200), nullable=True)  # only used for "new"
     proposed_description = db.Column(db.Text, nullable=True)
     proposed_type = db.Column(db.String(20), nullable=True)
@@ -254,19 +246,11 @@ class ConditionProposal(db.Model):
     reviewed_at = db.Column(db.DateTime, nullable=True)
     review_note = db.Column(db.Text, nullable=True)
 
-    # --- NEW: reopen workflow (see module docstring) ---
-    # Points to the ORIGINAL rejected proposal this row was reopened
-    # from. NULL for every ordinary (non-reopened) proposal. Self-
-    # referential FK, so the full reopen chain is always traceable.
     reopened_from_id = db.Column(
         db.Integer, db.ForeignKey("condition_proposals.id"), nullable=True
     )
     reopened_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     reopened_at = db.Column(db.DateTime, nullable=True)
-    # "Unseen" flag -- True right after an admin reopens this proposal,
-    # cleared to False the next time the submitting engineer's
-    # my-proposals page loads. Not a general notifications system --
-    # just enough to make sure the engineer notices the reopen.
     engineer_notified_of_reopen = db.Column(db.Boolean, nullable=False, default=False)
 
     condition = db.relationship("Condition", back_populates="proposals")
@@ -292,9 +276,6 @@ class AuditLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     condition_id = db.Column(db.String(64), db.ForeignKey("conditions.id"), nullable=False)
 
-    # Traceability back to the proposal that produced this row -- lets
-    # the audit log page show "proposed by X on <date>, approved by Y
-    # on <date>" in one query instead of guessing.
     proposal_id = db.Column(
         db.Integer, db.ForeignKey("condition_proposals.id"), nullable=True
     )
@@ -314,7 +295,7 @@ class AuditLog(db.Model):
 
 class ProposalNoteEditLog(db.Model):
     """
-    NEW. Tracks edits made to a proposal's `review_note` AFTER a final
+    Tracks edits made to a proposal's `review_note` AFTER a final
     decision (approved/rejected) has already been recorded -- see
     module docstring for why this is separate from AuditLog.
 
@@ -341,3 +322,61 @@ class ProposalNoteEditLog(db.Model):
 
     def __repr__(self) -> str:
         return f"<ProposalNoteEditLog #{self.id} on proposal #{self.proposal_id}>"
+
+
+class UploadedDocument(db.Model):
+    """
+    Tracks every markdown knowledge-base file uploaded dynamically
+    through the admin panel (rag/knowledge_upload.py), as opposed to
+    the 4 original sources (building_conditions, engineer_guide,
+    building_code, materials_register), each of which has its own
+    hand-written sync_*() function in rag/migrate_to_chroma.py.
+
+    This row is the ONLY durable record of "what dynamic sources exist"
+    -- without it, a full re-sync of the unified Chroma collection
+    (if it were ever rebuilt from scratch) would silently lose any
+    admin-uploaded source, since there'd be no fixed function anywhere
+    in the codebase that knows to re-read it. Same "zero silent data
+    loss" principle as AuditLog/ProposalNoteEditLog.
+
+    `file_path` points to the raw .md file saved to disk (see
+    rag/knowledge_upload.py) -- the uploaded file itself is kept
+    permanently, not just its chunked/embedded form in Chroma, for the
+    same re-sync-from-scratch reason above.
+
+    `split_mode` and `audience_role` are the two choices the admin
+    makes at upload time (see rag/knowledge_upload.py) -- stored here
+    so a future re-sync knows exactly how to re-chunk this file without
+    the admin re-entering that choice.
+    """
+
+    __tablename__ = "uploaded_documents"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    source_name = db.Column(db.String(100), unique=True, nullable=False)
+
+    original_filename = db.Column(db.String(255), nullable=False)
+    file_path = db.Column(db.String(500), nullable=False)
+
+    split_mode = db.Column(db.String(20), nullable=False)  # "single_level" | "two_level"
+    audience_role = db.Column(db.String(20), nullable=False)  # "engineer" | "admin" | "all"
+
+    chunk_count = db.Column(db.Integer, nullable=False)
+
+    uploaded_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    uploaded_at = db.Column(db.DateTime, nullable=False, default=_utcnow)
+
+    uploader = db.relationship("User", foreign_keys=[uploaded_by])
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "split_mode IN ('single_level', 'two_level')", name="ck_uploaded_docs_split_mode_valid"
+        ),
+        db.CheckConstraint(
+            "audience_role IN ('engineer', 'admin', 'all')", name="ck_uploaded_docs_audience_role_valid"
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<UploadedDocument {self.source_name} ({self.chunk_count} chunks)>"
