@@ -71,6 +71,35 @@
         <button type="submit" class="btn btn--ghost">Reject</button>
       </form>
     </div>
+
+    <!-- SAFE TESTER (read-only preview -- see admin/routes/proposals.py::test_proposal_route()) -->
+    <div class="proposal-tester" data-proposal-id="{{ p.id }}">
+      <div class="proposal-tester__controls">
+        <select class="text-input proposal-tester__scenario">
+          <option value="compliant">Compliant</option>
+          <option value="violation">Violation</option>
+          <option value="missing_data">Missing Data</option>
+        </select>
+        <button type="button" class="btn btn--ghost proposal-tester__run">Test</button>
+      </div>
+
+      <button type="button" class="panel__toggle proposal-tester__toggle" aria-expanded="false" hidden>
+        <span class="proposal-tester__toggle-label">Show</span>
+        <svg class="panel__toggle-icon" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="collapsible proposal-tester__collapsible" data-expanded="false">
+        <div class="collapsible__inner">
+          <div class="proposal-tester__results"></div>
+          <span class="proposal-tester__overall"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- BUILDING CODE ADVISORY (NEW, read-only -- see check_building_code_route()) -->
+    <div class="code-advisory" data-proposal-id="{{ p.id }}">
+      <button type="button" class="btn btn--ghost code-advisory__run">Check Building Code</button>
+      <div class="code-advisory__results" hidden></div>
+    </div>
   </article>
   {% endfor %}
 
@@ -116,4 +145,9 @@
     </tbody>
   </table>
 </section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/admin-proposal-tester.js') }}"></script>
+<script src="{{ url_for('static', filename='js/admin-code-advisory.js') }}"></script>
 {% endblock %}

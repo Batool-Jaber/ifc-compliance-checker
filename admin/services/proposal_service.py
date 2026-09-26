@@ -33,13 +33,23 @@ design rationale):
     and logs the edit to ProposalNoteEditLog (a small, separate table
     from AuditLog -- see admin/models.py's docstring for why).
 
-RAG SYNC (NEW): approve_proposal() calls
+RAG SYNC: approve_proposal() calls
 rag/migrate_to_chroma.py::sync_building_conditions() right after its
 own db.session.commit(), so the unified Chroma collection
 (rag/vector_db.py) never serves stale condition text after an
 approval. Re-syncs ALL conditions rather than just the one that
 changed -- see that function's docstring for why this is deliberate,
 not an oversight.
+
+SAFE TESTER (NEW): build_test_condition_set() is the READ-ONLY
+counterpart to approve_proposal() -- same field-mapping logic (a
+proposal's proposed_* values replacing/extending the live condition
+set), but it NEVER calls db.session.add()/commit(), NEVER touches
+`proposal` or `Condition` itself. Named deliberately differently from
+approve_proposal() (build_* vs approve_*) so it's never mistaken for a
+writing operation. Used by admin/routes/proposals.py::test_proposal_route()
+to preview a proposal's real deterministic effect before actually
+approving it.
 """
 
 import re
@@ -340,6 +350,83 @@ def edit_reopened_proposal(
     proposal.proposed_field_path = field_path
 
     db.session.commit()
+
+
+# ---------------------------------------------------------------------
+# Safe Tester (NEW) -- read-only preview, never writes anything
+# ---------------------------------------------------------------------
+
+def build_test_condition_set(proposal: ConditionProposal) -> list[dict]:
+    """
+    READ-ONLY. Builds the hypothetical "what would be live" condition
+    set for a pending proposal, WITHOUT writing anything to the
+    database. Used by admin/routes/proposals.py::test_proposal_route()
+    to preview the real deterministic effect of approving this
+    proposal -- against a sample IFC model -- before actually
+    approving it.
+
+    - "edit": every live condition is included as-is EXCEPT the one
+      being edited (matched by proposal.condition_id), which is
+      replaced by the proposal's proposed_* values (id/title
+      unchanged -- only the values that approve_proposal() would
+      change are changed here too).
+    - "new": every live condition is included as-is, PLUS one extra
+      dict built from the proposal's proposed_* values (id=None, since
+      it doesn't exist as a real Condition row until approval).
+
+    This mirrors, at read time, exactly the same field mapping
+    approve_proposal() applies at write time -- but this function never
+    calls db.session.add()/commit(), and never mutates `proposal` or
+    any `Condition` row. Name deliberately starts with build_ (not
+    approve_/apply_) so it can never be mistaken for a writing
+    operation at a glance.
+    """
+    conditions = [_condition_to_dict(c) for c in Condition.query.all()]
+
+    if proposal.proposal_type == ProposalType.NEW.value:
+        conditions.append({
+            "id": None,  # doesn't exist as a real Condition.id until approval
+            "title": proposal.proposed_title,
+            "description": proposal.proposed_description,
+            "type": proposal.proposed_type,
+            "threshold": proposal.proposed_threshold,
+            "min_value": proposal.proposed_min,
+            "max_value": proposal.proposed_max,
+            "unit": proposal.proposed_unit,
+            "field_path": proposal.proposed_field_path,
+        })
+    else:
+        for c in conditions:
+            if c["id"] == proposal.condition_id:
+                c["description"] = proposal.proposed_description
+                c["type"] = proposal.proposed_type
+                c["threshold"] = proposal.proposed_threshold
+                c["min_value"] = proposal.proposed_min
+                c["max_value"] = proposal.proposed_max
+                c["unit"] = proposal.proposed_unit
+                c["field_path"] = proposal.proposed_field_path
+                break
+
+    return conditions
+
+
+def _condition_to_dict(condition: Condition) -> dict:
+    """Same plain-dict shape app.py::_active_conditions_as_dicts()
+    produces for the live web app. Duplicated here (not imported from
+    app.py) specifically to avoid a circular import: app.py imports
+    `admin`, which imports this module at package-init time, before
+    app.py's own code has executed."""
+    return {
+        "id": condition.id,
+        "title": condition.title,
+        "description": condition.description,
+        "type": condition.type,
+        "threshold": condition.threshold,
+        "min_value": condition.min_value,
+        "max_value": condition.max_value,
+        "unit": condition.unit,
+        "field_path": condition.field_path,
+    }
 
 
 # ---------------------------------------------------------------------
