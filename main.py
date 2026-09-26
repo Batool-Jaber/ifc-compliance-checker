@@ -23,17 +23,19 @@ have zero influence on calculated_value/required_value/status, which
 come entirely from validation/deterministic_checks.py's pure-Python
 arithmetic.
 
-DYNAMIC CONDITIONS (NEW): run_pipeline() accepts an optional
-`conditions` list -- plain dicts read from the live `conditions` DB
-table by the CALLER (app.py, which runs inside a Flask app context).
-This module itself has ZERO knowledge of Flask/SQLAlchemy (same
-isolation principle as validation/generic_engine.py and
-rag/chunking.py::build_chunks_from_conditions -- see those modules).
+DYNAMIC CONDITIONS: run_pipeline() accepts an optional `conditions`
+list -- plain dicts read from the live `conditions` DB table by the
+CALLER (app.py, which runs inside a Flask app context). This module
+itself has ZERO knowledge of Flask/SQLAlchemy (same isolation principle
+as validation/generic_engine.py and rag/chunking.py::build_chunks_from_conditions
+-- see those modules).
 
   - conditions=None (default): behaves EXACTLY as before -- standalone
     CLI usage, no DB/Flask involved at all. Uses the static
-    CONDITION_TO_QUERY dict and rag/chunking.py::load_and_chunk()
-    (reads knowledge_base/building_conditions.md).
+    CONDITION_TO_QUERY dict, rag/chunking.py::load_and_chunk() (reads
+    knowledge_base/building_conditions.md), and the 3 original checks'
+    HARDCODED thresholds (validation/deterministic_checks.py's module
+    constants) -- unchanged, on purpose.
   - conditions=[...]: used by the live web app. RAG chunks are built
     from these conditions directly (build_chunks_from_conditions()),
     the retrieval query for EVERY condition (original 3 included) is
@@ -41,6 +43,20 @@ rag/chunking.py::build_chunks_from_conditions -- see those modules).
     beyond the original 3 (identified by field_path being set) is
     passed to run_all_checks() as extra_conditions, evaluated by the
     generic engine.
+
+    LIVE-THRESHOLD FIX: on this path, the 3 original conditions' own
+    threshold/min_value/max_value are ALSO read from `conditions` (by
+    matching title against CONDITION_TO_QUERY's keys) and passed to
+    run_all_checks() as the new room_area_min/window_ratio_min/
+    sill_height_min/sill_height_max overrides. Before this fix, an
+    admin-approved edit to one of these 3 conditions' numeric value
+    updated the Condition row (and therefore its RAG citation text)
+    but the actual PASS/FAIL decision silently kept using the original
+    hardcoded constant forever -- a real, confirmed gap, not a
+    hypothetical one. This fix makes the live web app's compliance
+    decision actually match the currently-approved values. The
+    conditions=None/CLI path is deliberately NOT changed -- it keeps
+    using the hardcoded constants exactly as before.
 
 Usage (unchanged):
     python main.py data/generated/compliant_model.ifc
@@ -78,6 +94,9 @@ from rag.llm_narration import narrate
 
 # Used only when run_pipeline() is called with conditions=None (the
 # original 3, standalone-CLI path). Left exactly as before -- untouched.
+# ALSO used on the live path (conditions=[...]) as the set of titles
+# that identify "one of the original 3" so their live threshold values
+# can be looked up and passed through -- see module docstring.
 CONDITION_TO_QUERY = {
     "Minimum Room Area": "what is the minimum room area",
     "Minimum Window Area": "window area percentage requirement",
@@ -107,9 +126,11 @@ def run_pipeline(
     Runs the full pipeline against one IFC file and returns a single
     combined compliance report dict.
 
-    conditions=None -> standalone/CLI behavior, unchanged (static file
-    + static CONDITION_TO_QUERY). conditions=[...] -> live DB-driven
-    behavior (see module docstring).
+    conditions=None -> standalone/CLI behavior, unchanged (static file,
+    static CONDITION_TO_QUERY, hardcoded original-3 thresholds).
+    conditions=[...] -> live DB-driven behavior, INCLUDING the original
+    3's live threshold values (see module docstring's "LIVE-THRESHOLD
+    FIX" note).
     """
     extracted = extract_all(ifc_path)
 
@@ -127,7 +148,25 @@ def run_pipeline(
             c for c in conditions
             if c.get("field_path") and c["title"] not in CONDITION_TO_QUERY
         ]
-        check_results = run_all_checks(extracted["room"], extracted["window"], extra_conditions)
+
+        # LIVE-THRESHOLD FIX: pull the original 3's own live values (if
+        # present in `conditions`) by matching title, so an
+        # admin-approved edit actually changes what gets enforced --
+        # not just the citation text. Falls back to None (-> the
+        # hardcoded constant) for any of the 3 that isn't found, e.g.
+        # if the DB seed is ever missing one.
+        conditions_by_title = {c["title"]: c for c in conditions}
+        room_area_cond = conditions_by_title.get("Minimum Room Area")
+        window_area_cond = conditions_by_title.get("Minimum Window Area")
+        sill_height_cond = conditions_by_title.get("Window Sill Height")
+
+        check_results = run_all_checks(
+            extracted["room"], extracted["window"], extra_conditions,
+            room_area_min=room_area_cond["threshold"] if room_area_cond else None,
+            window_ratio_min=window_area_cond["threshold"] if window_area_cond else None,
+            sill_height_min=sill_height_cond["min_value"] if sill_height_cond else None,
+            sill_height_max=sill_height_cond["max_value"] if sill_height_cond else None,
+        )
         chunks = build_chunks_from_conditions(conditions)
 
         # Query generated from each condition's OWN title -- works for
