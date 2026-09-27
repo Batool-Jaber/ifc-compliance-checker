@@ -365,3 +365,30 @@
   color: var(--grey);
   font-family: 'IBM Plex Mono', monospace;
 }
+
+
+
+
+/* ---------- Help page tabs + Proposals Status (admin/help.html) ---------- */
+.help-tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--grid-line); }
+.help-tab {
+  background: none; border: none; cursor: pointer;
+  padding: 10px 14px; font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.88rem; color: var(--grey);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.help-tab--active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
+
+.help-status-hint {
+  margin-top: 10px; padding: 10px 12px;
+  background: var(--blue-light); border-radius: var(--radius);
+  font-size: 0.82rem; color: var(--ink);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.help-status-hint__btn { flex-shrink: 0; }
+
+.help-status-list { display: flex; flex-direction: column; gap: 12px; }
+.help-status-item { border: 1px solid var(--grid-line); border-radius: var(--radius); padding: 12px 14px; }
+.help-status-item__header { display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 6px; }
+.help-status-item__meta { font-size: 0.75rem; color: var(--grey); }
+.help-status-item__note { margin-top: 8px; font-size: 0.82rem; color: var(--ink); font-style: italic; }

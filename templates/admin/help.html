@@ -2,38 +2,53 @@
 
 {% block title %}Help{% endblock %}
 {% block header_title %}Help{% endblock %}
-{% block header_subtitle %}Ask a question about using the admin system{% endblock %}
+{% block header_subtitle %}Ask a question, or check your own proposals{% endblock %}
 
 {% block content %}
 <section class="panel panel--wide" id="help-panel">
-  <h2>Ask a question</h2>
-  <p class="ask-hint">
-    Ask anything about using the Compliance Checker or the admin panel &mdash;
-    the answer is grounded in whichever section of the engineer guide
-    matches your question best.
-  </p>
-
-  <div class="ask-row">
-    <input type="text" id="help-question" placeholder="e.g. How do I propose a new condition?">
-    <button type="button" class="btn btn--secondary ask-btn" id="help-ask-btn">Ask</button>
+  <div class="help-tabs">
+    <button type="button" class="help-tab help-tab--active" data-tab="ask">Ask the Guide</button>
+    <button type="button" class="help-tab" data-tab="status">My Proposals Status</button>
   </div>
 
-  <div class="help-llm-field">
-    <label class="switch">
-      <input type="checkbox" id="help-use-llm">
-      <span class="switch__track"><span class="switch__thumb"></span></span>
-    </label>
-    <span class="help-llm-label">Rephrase with local LLM (slower &mdash; off by default)</span>
+  <div class="help-tab-panel" data-tab-panel="ask">
+    <p class="ask-hint">
+      Ask anything about using the Compliance Checker or the admin panel &mdash;
+      the answer is grounded in whichever section of the engineer guide
+      matches your question best.
+    </p>
+
+    <div class="ask-row">
+      <input type="text" id="help-question" placeholder="e.g. How do I propose a new condition?">
+      <button type="button" class="btn btn--secondary ask-btn" id="help-ask-btn">Ask</button>
+    </div>
+
+    <div class="help-llm-field">
+      <label class="switch">
+        <input type="checkbox" id="help-use-llm">
+        <span class="switch__track"><span class="switch__thumb"></span></span>
+      </label>
+      <span class="help-llm-label">Rephrase with local LLM (slower &mdash; off by default)</span>
+    </div>
+
+    <div class="help-loading" id="help-loading" hidden>
+      <span class="loader"></span>
+      <span class="help-loading__text">Searching the guide&hellip;</span>
+    </div>
+
+    <div class="help-error" id="help-error" hidden></div>
+
+    <div class="help-history" id="help-history"></div>
   </div>
 
-  <div class="help-loading" id="help-loading" hidden>
-    <span class="loader"></span>
-    <span class="help-loading__text">Searching the guide&hellip;</span>
+  <div class="help-tab-panel" data-tab-panel="status" hidden>
+    <p class="ask-hint">A direct look at your own proposals — not a guide search.</p>
+    <div class="help-status-loading" id="help-status-loading" hidden>
+      <span class="loader"></span>
+      <span class="help-loading__text">Loading your proposals&hellip;</span>
+    </div>
+    <div class="help-status-list" id="help-status-list"></div>
   </div>
-
-  <div class="help-error" id="help-error" hidden></div>
-
-  <div class="help-history" id="help-history"></div>
 </section>
 {% endblock %}
 

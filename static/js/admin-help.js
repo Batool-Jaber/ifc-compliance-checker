@@ -1,22 +1,51 @@
 /**
  * admin-help.js
  * ==============
- * Wires the Help page's question box to POST /admin/help/ask, keeps a
- * running history of every question asked this session (newest at the
- * bottom, older entries never removed), respects the "use LLM" toggle,
- * and shows a distinct no-match state with clickable example questions
- * pulled from real engineer_guide.md section headers.
+ * Two tabs on the Help page:
+ * 1. "Ask the Guide" -- unchanged RAG question box (history, LLM
+ *    toggle, no-match state with example chips).
+ * 2. "My Proposals Status" -- NEW, tool-use: fetches
+ *    GET /admin/help/proposals-status (a direct DB query, no RAG) and
+ *    lists the engineer's own proposals with their real status.
+ *
+ * TAB-CONFUSION SAFETY NET: every /admin/help/ask response includes
+ * possible_status_question (a simple keyword check done server-side).
+ * When true, a soft hint is appended under that answer, with a button
+ * that switches to the Status tab -- the Ask tab's own answer is never
+ * replaced or hidden, this is purely an additive suggestion.
  */
 
 const $ = (id) => document.getElementById(id);
 
-// Real section headers/questions from knowledge_base/help/engineer_guide.md
-// -- not invented content.
 const EXAMPLE_QUESTIONS = [
   "How do I propose a new condition?",
   "What does CANNOT_BE_EVALUATED mean?",
   "My proposal has been pending for a while, is something wrong?",
 ];
+
+// ---------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------
+
+function switchToTab(tabName) {
+  document.querySelectorAll(".help-tab").forEach((btn) => {
+    btn.classList.toggle("help-tab--active", btn.dataset.tab === tabName);
+  });
+  document.querySelectorAll(".help-tab-panel").forEach((panel) => {
+    panel.hidden = panel.dataset.tabPanel !== tabName;
+  });
+  if (tabName === "status") {
+    loadProposalsStatus();
+  }
+}
+
+document.querySelectorAll(".help-tab").forEach((btn) => {
+  btn.addEventListener("click", () => switchToTab(btn.dataset.tab));
+});
+
+// ---------------------------------------------------------------------
+// Tab 1: Ask the Guide (unchanged RAG flow, plus the status hint)
+// ---------------------------------------------------------------------
 
 function setLoading(isLoading) {
   $("help-loading").hidden = !isLoading;
@@ -32,6 +61,18 @@ function showHelpError(message) {
 
 function clearHelpError() {
   $("help-error").hidden = true;
+}
+
+function maybeAddStatusHint(wrap, data) {
+  if (!data.possible_status_question) return;
+  const hint = document.createElement("div");
+  hint.className = "help-status-hint";
+  hint.innerHTML = `
+    It looks like you might be asking about your own proposals, not the guide.
+    <button type="button" class="btn btn--ghost help-status-hint__btn">Check My Proposals Status</button>
+  `;
+  hint.querySelector("button").addEventListener("click", () => switchToTab("status"));
+  wrap.appendChild(hint);
 }
 
 function buildMatchedEntry(question, data) {
@@ -61,10 +102,11 @@ function buildMatchedEntry(question, data) {
     wrap.appendChild(answer);
   }
 
+  maybeAddStatusHint(wrap, data);
   return wrap;
 }
 
-function buildNoMatchEntry(question) {
+function buildNoMatchEntry(question, data) {
   const wrap = document.createElement("div");
   wrap.className = "help-entry";
 
@@ -94,6 +136,7 @@ function buildNoMatchEntry(question) {
   });
   wrap.appendChild(noMatch);
 
+  maybeAddStatusHint(wrap, data);
   return wrap;
 }
 
@@ -114,7 +157,7 @@ async function askHelpQuestion() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to get an answer.");
 
-    const entry = data.matched ? buildMatchedEntry(question, data) : buildNoMatchEntry(question);
+    const entry = data.matched ? buildMatchedEntry(question, data) : buildNoMatchEntry(question, data);
     $("help-history").appendChild(entry);
     $("help-question").value = "";
   } catch (err) {
@@ -128,3 +171,50 @@ $("help-ask-btn").addEventListener("click", askHelpQuestion);
 $("help-question").addEventListener("keydown", (e) => {
   if (e.key === "Enter") askHelpQuestion();
 });
+
+// ---------------------------------------------------------------------
+// Tab 2: My Proposals Status (tool-use, no RAG)
+// ---------------------------------------------------------------------
+
+function renderProposalsStatus(proposals) {
+  const list = $("help-status-list");
+  list.innerHTML = "";
+
+  if (proposals.length === 0) {
+    list.innerHTML = `<p class="field__hint">You haven't submitted any proposals yet.</p>`;
+    return;
+  }
+
+  proposals.forEach((p) => {
+    const item = document.createElement("div");
+    item.className = "help-status-item";
+    item.innerHTML = `
+      <div class="help-status-item__header">
+        <span>${p.type === "new" ? "New: " : "Edit: "}${p.title ?? "(untitled)"}</span>
+        <span class="mono" data-status="${p.status}">${p.status}</span>
+      </div>
+      <div class="help-status-item__meta mono">
+        Submitted ${p.submitted_at}${p.reviewed_at ? ` · Reviewed ${p.reviewed_at}` : ""}
+        ${p.reopened_from_id ? ` · reopened from #${p.reopened_from_id}` : ""}
+      </div>
+      ${p.review_note ? `<div class="help-status-item__note">${p.review_note}</div>` : ""}
+    `;
+    list.appendChild(item);
+  });
+}
+
+async function loadProposalsStatus() {
+  $("help-status-loading").hidden = false;
+  $("help-status-list").innerHTML = "";
+
+  try {
+    const res = await fetch("/admin/help/proposals-status");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to load your proposals.");
+    renderProposalsStatus(data.proposals);
+  } catch (err) {
+    $("help-status-list").innerHTML = `<div class="help-error">${err.message}</div>`;
+  } finally {
+    $("help-status-loading").hidden = true;
+  }
+}
