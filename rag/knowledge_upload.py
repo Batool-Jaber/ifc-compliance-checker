@@ -61,6 +61,17 @@ def chunk_uploaded_file(path: Path, split_mode: str) -> list[dict]:
         raise ValueError(f"Unknown split_mode '{split_mode}'")
 
 
+# Outlier detection needs enough samples to be statistically
+# meaningful -- with very few sections, the standard deviation itself
+# becomes unstable (near-zero for similarly-sized sections, producing
+# false-positive outlier warnings on perfectly normal content; or
+# skewed by the outlier itself, hiding a real problem). Below this
+# threshold, outlier detection is skipped entirely rather than run
+# unreliably -- a real gap identified during review, not a
+# hypothetical concern.
+MIN_SECTIONS_FOR_OUTLIER_CHECK = 5
+
+
 def analyze_markdown_quality(chunks: list[dict]) -> dict:
     """
     Read-only heuristic quality check over an already-chunked document.
@@ -90,24 +101,25 @@ def analyze_markdown_quality(chunks: list[dict]) -> dict:
     mean_len = statistics.mean(lengths)
     stdev_len = statistics.pstdev(lengths) if len(lengths) > 1 else 0
 
-    # Sections more than 2 standard deviations from the mean length --
-    # a simple, standard outlier signal, not a hard rule. On documents
-    # with very few sections this naturally flags less (there's not
-    # enough spread to compute a meaningful outlier), which is the
-    # correct, honest behavior rather than a false sense of precision.
-    outliers = []
-    if stdev_len > 0:
+    if len(chunks) < MIN_SECTIONS_FOR_OUTLIER_CHECK:
+        warnings.append(
+            f"Only {len(chunks)} section(s) found -- too few to reliably "
+            f"detect unusually long/short sections (this check needs at "
+            f"least {MIN_SECTIONS_FOR_OUTLIER_CHECK}). Skipped, not run "
+            f"unreliably."
+        )
+    elif stdev_len > 0:
+        outliers = []
         for c, length in zip(chunks, lengths):
             if abs(length - mean_len) > 2 * stdev_len:
                 outliers.append((c["title"], length))
-
-    for title, length in outliers:
-        warnings.append(
-            f"Section '{title}' is {length} characters, unusually "
-            f"{'long' if length > mean_len else 'short'} compared to the "
-            f"document's average ({mean_len:.0f} chars). Consider whether "
-            f"it should be split further or merged."
-        )
+        for title, length in outliers:
+            warnings.append(
+                f"Section '{title}' is {length} characters, unusually "
+                f"{'long' if length > mean_len else 'short'} compared to the "
+                f"document's average ({mean_len:.0f} chars). Consider whether "
+                f"it should be split further or merged."
+            )
 
     titles = [c["title"] for c in chunks]
     seen = set()
@@ -132,7 +144,7 @@ def analyze_markdown_quality(chunks: list[dict]) -> dict:
                     f"standalone chunk. Consider naming the section/article "
                     f"explicitly instead."
                 )
-                break  # one warning per section is enough, don't repeat per pattern
+                break
 
     return {
         "warnings": warnings,
@@ -143,7 +155,6 @@ def analyze_markdown_quality(chunks: list[dict]) -> dict:
             "max_length": max(lengths),
         },
     }
-
 
 def sync_uploaded_markdown(
     source_name: str, file_path: Path, split_mode: str, audience_role: str
