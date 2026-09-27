@@ -1,55 +1,68 @@
 """
 admin/routes/help.py
 ======================
-Engineer-only "Help" page: a free-form question box answered from the
-unified Chroma collection (rag/vector_db.py), scoped to
-audience_role="engineer" (so it can see anything marked "engineer" or
-"all", never "admin"-only content like the building-code regulations
-or, previously, an admin-only slice of the materials register --
-none of that currently exists, but the filtering is real and
-enforced at query time regardless), plus an optional local-LLM
-rephrased answer (see rag/llm_help_advisor.py) the engineer can
-toggle on/off.
+Engineer-only "Help" page, now with TWO tabs:
 
-Previously this route built its own private, in-memory, per-process
-index (_get_help_index() over rag/chunking.py::load_and_chunk() +
-rag/vector_store.py) reading ONLY knowledge_base/help/engineer_guide.md.
-That has been retired: this route now queries the SAME unified
-collection every other RAG-backed part of this project uses
-(rag/migrate_to_chroma.py populates it from building_conditions,
-engineer_guide, building_code, and materials_register). Practically,
-for an engineer's question, this means the Help Assistant can now also
-surface a relevant materials_register product (audience_role
-"engineer") in addition to engineer_guide sections -- not just guide
-text -- since both are visible to the engineer role in the unified
-store.
+1. "Ask the Guide" (help_ask()) -- unchanged RAG behavior: free-form
+   question answered from the unified Chroma collection
+   (rag/vector_db.py), scoped to audience_role="engineer".
 
-CONFIDENCE_THRESHOLD is UNCHANGED from before this migration -- the
-score is cosine similarity from the same embeddings model
-(all-MiniLM-L6-v2) either way; empirically confirmed identical
-(0.5424) for the same test question before and after the Chroma
-migration, so the previously-tuned value stays valid.
+2. "My Proposals Status" (help_proposals_status()) -- NEW, and
+   deliberately NOT RAG at all. This is TOOL-USE: a direct,
+   deterministic database query scoped to the current engineer's own
+   ConditionProposal rows via get_current_user() (never a user-supplied
+   id). No embeddings, no Chroma, no LLM involved -- the engineer's
+   real proposal history is looked up directly, the same way
+   admin/routes/proposals.py::my_proposals() already does for the full
+   proposals page. This tab is a lightweight, conversational-style
+   summary; the full-featured /admin/my-proposals page (which also
+   handles editing a reopened proposal) is unchanged and still the
+   place for that.
+
+TAB-CONFUSION SAFETY NET (NEW): help_ask() also runs a simple,
+deterministic keyword check (_looks_like_status_question()) on the
+question text. If the engineer is on "Ask the Guide" but their wording
+suggests they actually mean their own proposal status (e.g. "did I get
+approved"), the response includes possible_status_question: true --
+the frontend shows a soft hint pointing at the other tab, WITHOUT
+changing which tab is active or which answer is shown. This is
+deliberately keyword-based, not an LLM classification: consistent with
+this project's standing preference for deterministic, predictable
+behavior over a model's guess (same philosophy as the deterministic
+compliance checks themselves). It is a heuristic, not a guarantee --
+some phrasings won't be caught, and that's an accepted, documented
+trade-off, not a hidden gap.
+
+CONFIDENCE_THRESHOLD is unchanged -- see prior history for its tuning.
 """
 
 from flask import jsonify, render_template, request
 
 from admin import admin_bp
-from admin.decorators import role_required
-from admin.models import Role
+from admin.decorators import get_current_user, role_required
+from admin.models import ConditionProposal, Role
 from rag.llm_help_advisor import answer_help_question
 from rag.vector_db import search as unified_search
 
-# NOTE: this value is tuned from real test data (12 manually-run
-# questions against the pre-migration engineer_guide-only index -- see
-# project handoff docs for the full table). The lowest confirmed-correct
-# match scored 0.5476, the highest confirmed-incorrect match scored
-# 0.4774; 0.52 sits in that gap. CAVEAT: small sample, and this now also
-# gates materials_register results (not just engineer_guide) -- revisit
-# if real usage on the newly-included source produces misclassified
-# borderline scores.
 CONFIDENCE_THRESHOLD = 0.52
 
 NO_MATCH_MESSAGE = "I couldn't find anything in the guide closely related to that question."
+
+# Deliberately PHRASE-based, not single words -- an earlier draft
+# considered bare "pending"/"approved"/"rejected", but the guide itself
+# has a real section literally titled "My proposal has been pending for
+# a while, is something wrong?", which would have falsely triggered the
+# hint on a perfectly normal guide question. Phrases that specifically
+# imply "about ME" are a better (though still imperfect) signal.
+_STATUS_KEYWORDS = (
+    "my proposal", "my proposals", "my condition", "my status",
+    "did i", "was my", "have i", "am i",
+)
+
+
+def _looks_like_status_question(question: str) -> bool:
+    q = question.lower()
+    return any(kw in q for kw in _STATUS_KEYWORDS)
 
 
 @admin_bp.route("/help")
@@ -63,11 +76,10 @@ def help_page():
 def help_ask():
     """
     Queries the unified Chroma collection, scoped to
-    audience_role="engineer" (sees "engineer" + "all" content, never
-    "admin"-only). If the top match's similarity score is below
-    CONFIDENCE_THRESHOLD, returns NO_MATCH_MESSAGE instead of calling
-    the LLM on an unrelated section -- avoids a confidently-worded
-    answer grounded in the wrong context.
+    audience_role="engineer". If the top match's similarity score is
+    below CONFIDENCE_THRESHOLD, returns NO_MATCH_MESSAGE instead of
+    calling the LLM on an unrelated section. Also flags
+    possible_status_question -- see module docstring.
     """
     data = request.get_json(force=True) or {}
     question = data.get("question", "").strip()
@@ -75,6 +87,8 @@ def help_ask():
 
     if not question:
         return jsonify({"error": "Question is empty."}), 400
+
+    status_hint = _looks_like_status_question(question)
 
     results = unified_search(question, top_k=1, audience_role="engineer")
 
@@ -91,6 +105,7 @@ def help_ask():
             "similarity_score": round(best["score"], 4),
             "used_llm": False,
             "answer": NO_MATCH_MESSAGE,
+            "possible_status_question": status_hint,
         })
 
     answer = answer_help_question(question, best["text"]) if use_llm else None
@@ -102,4 +117,38 @@ def help_ask():
         "similarity_score": round(best["score"], 4),
         "used_llm": use_llm,
         "answer": answer,
+        "possible_status_question": status_hint,
+    })
+
+
+@admin_bp.route("/help/proposals-status", methods=["GET"])
+@role_required(Role.ENGINEER.value)
+def help_proposals_status():
+    """
+    TOOL-USE, not RAG: a direct, deterministic query of the current
+    engineer's own ConditionProposal rows -- no embeddings, no Chroma,
+    no LLM. Scoped via get_current_user(), never a user-supplied id.
+    Powers the "My Proposals Status" tab.
+    """
+    current = get_current_user()
+    proposals = (
+        ConditionProposal.query.filter_by(submitted_by=current.id)
+        .order_by(ConditionProposal.submitted_at.desc())
+        .all()
+    )
+
+    return jsonify({
+        "proposals": [
+            {
+                "id": p.id,
+                "type": p.proposal_type,
+                "title": p.proposed_title if p.proposal_type == "new" else (p.condition.title if p.condition else None),
+                "status": p.status,
+                "submitted_at": p.submitted_at.strftime("%Y-%m-%d %H:%M"),
+                "reviewed_at": p.reviewed_at.strftime("%Y-%m-%d %H:%M") if p.reviewed_at else None,
+                "review_note": p.review_note,
+                "reopened_from_id": p.reopened_from_id,
+            }
+            for p in proposals
+        ]
     })
