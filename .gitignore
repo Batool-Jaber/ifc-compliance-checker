@@ -29,3 +29,5 @@ chroma_db/
 
 knowledge_base/materials/*.pdf
 project_tree.txt
+
+knowledge_base/uploaded/_pending/
