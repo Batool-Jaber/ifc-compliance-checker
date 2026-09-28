@@ -87,22 +87,35 @@ def upsert_chunks(chunks: list[dict]) -> None:
     )
 
 
-def search(query: str, top_k: int = 1, *, audience_role: str) -> list[dict]:
+def search(
+    query: str,
+    top_k: int = 1,
+    *,
+    audience_role: str,
+    extra_where: dict | None = None,
+) -> list[dict]:
     """
     Returns the top_k most similar chunks to `query`, restricted to
     chunks where metadata audience_role == audience_role OR == "all" --
     applied as a Chroma `where` filter BEFORE similarity ranking.
 
-    audience_role has NO default -- every caller must decide explicitly
-    which role it's querying for. See module docstring for why this is
-    deliberate, not an inconvenience.
+    extra_where (NEW): an optional additional Chroma where-condition
+    (e.g. {"source": "building_code"}), merged with the audience_role
+    filter via "$and". This ensures top_k is applied AFTER narrowing to
+    the caller's actual candidate set (e.g. one source), not on the
+    whole unified collection first -- fixes a real bug found while
+    building rag/hybrid_search.py: without this, a genuinely relevant
+    chunk from a narrow source could rank outside the top_k of the
+    ENTIRE multi-source collection and be silently lost, even though
+    it would have ranked #1 within its own source.
     """
     collection = get_collection()
     if collection.count() == 0:
         return []
 
     query_vec = embed_text(query)
-    where = {"audience_role": {"$in": [audience_role, "all"]}}
+    role_filter = {"audience_role": {"$in": [audience_role, "all"]}}
+    where = {"$and": [role_filter, extra_where]} if extra_where else role_filter
 
     result = collection.query(
         query_embeddings=[[float(x) for x in query_vec]],
@@ -119,7 +132,6 @@ def search(query: str, top_k: int = 1, *, audience_role: str) -> list[dict]:
             "score": 1 - dist, "metadata": meta,
         })
     return chunks
-
 
 if __name__ == "__main__":
     sample_chunks = [
