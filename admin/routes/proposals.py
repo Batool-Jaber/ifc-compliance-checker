@@ -23,13 +23,13 @@ missing_data_model.ifc -- so testing a proposal can never corrupt the
 file the main Compliance Checker tool is using for a real check
 happening at the same time.
 
-BUILDING CODE ADVISORY (NEW): check_building_code_route() is ALSO
-READ-ONLY and purely informational -- it queries the unified Chroma
-store (rag/vector_db.py) for building_code articles related to this
-proposal, and returns raw article text (never LLM-rephrased -- a
-regulation's literal wording is the authoritative reference). This
-NEVER blocks, influences, or auto-decides Approve/Reject in any way;
-the frontend must visually label it "Advisory only".
+BUILDING CODE ADVISORY: check_building_code_route() is ALSO READ-ONLY
+and purely informational. It ranks building_code articles with Hybrid
+Search (BM25 + embeddings fused by Reciprocal Rank Fusion, see
+rag/hybrid_search.py) and returns raw article text (never
+LLM-rephrased -- a regulation's literal wording is the authoritative
+reference). This NEVER blocks, influences, or auto-decides
+Approve/Reject in any way; the frontend labels it "Advisory only".
 """
 
 from flask import flash, jsonify, redirect, render_template, request, url_for
@@ -37,7 +37,7 @@ from flask import flash, jsonify, redirect, render_template, request, url_for
 from admin import admin_bp
 from admin.decorators import get_current_user, role_required
 from admin.extensions import db
-from admin.models import Condition, ConditionProposal, ConditionType, ProposalStatus, ProposalType, Role
+from admin.models import ConditionProposal, ConditionType, ProposalStatus, ProposalType, Role
 from admin.services import proposal_service
 from admin.services.validation import ValidationError, parse_optional_float
 from validation.field_paths import KNOWN_FIELD_PATHS
@@ -45,7 +45,8 @@ from extract_ifc_data import extract_all
 from generate_ifc import generate_model
 from validation.deterministic_checks import run_all_checks
 from main import CONDITION_TO_QUERY  # only used to identify "one of the original 3" by title -- no other coupling
-from rag.vector_db import search as unified_search
+from rag.hybrid_search import hybrid_search
+from rag.vector_db import get_collection
 
 # Mirrors app.py::SCENARIO_PARAMS exactly. Duplicated here (not
 # imported from app.py) to avoid a circular import: app.py imports
@@ -61,48 +62,29 @@ TEST_SCENARIO_PARAMS = {
 # main Compliance Checker tool reads/writes -- see module docstring.
 TEST_IFC_OUTPUT_PATH = "data/generated/_proposal_test_tmp.ifc"
 
-# NOTE: this threshold is a PLACEHOLDER, UNTESTED against real
-# condition<->article pairs -- unlike help.py's CONFIDENCE_THRESHOLD
-# (tuned on 12 real questions), this value has had ZERO real
-# calibration yet. It is deliberately LOWER than 0.52 as a starting
-# guess (regulatory article text vs. a condition's title+description
-# is a different matching scenario than free-form engineer questions
-# vs. a help guide).
+# Minimum embedding_score (cosine similarity) for a hybrid-search
+# result to be shown in the Building Code Advisory. It is applied to
+# EACH returned result's embedding_score, NOT to rrf_score.
 #
-# CAVEAT (2nd tier, more serious than the Help Assistant's own
-# threshold caveat): a confirmed RANKING-QUALITY gap exists, not just
-# a threshold-tuning gap. Real test case: query "Wheelchair Turning
-# Space Near Doors... open floor space on both sides of an entry point
-# for someone using a mobility device" -- Article 8.2 (the genuinely
-# correct match, containing near-identical wording about manoeuvring
-# space on both sides of an accessible door) scored 0.4319 and ranked
-# #3, BELOW Article 8.5 (about lifts -- topically related but NOT the
-# right answer) at 0.5031, rank #1. Raising the threshold alone cannot
-# fix this: it would suppress the wrong (8.5) result for this specific
-# query, but the CORRECT result (8.2) is itself below threshold, so
-# the admin would see NOTHING instead of the right article -- silent
-# omission, not silent error, but still a real gap for a compliance
-# tool. This is the same class of semantic-similarity confusion
-# documented for help.py's CONFIDENCE_THRESHOLD (the "known retrieval-
-# quality limitation" there), surfacing here in a different context.
+# WHY NOT rrf_score: RRF's formula (1/(k+rank)) depends only on a
+# result's rank, never on match quality. In 4 real test queries (2
+# relevant, 2 irrelevant) the top rrf_score was nearly identical
+# (0.0328-0.0333) either way, so it can rank candidates but cannot
+# answer "is this good enough to show". embedding_score is a bounded,
+# absolute signal, so it makes the show/hide decision.
 #
-# PRE-COMMERCIAL-USE REQUIREMENT (not a "nice to have" future
-# improvement -- a hard blocker before this feature is used for any
-# real paid compliance decision, not just a portfolio/demo context):
-# before this tool is used to inform an actual building-compliance
-# decision for a real client, EITHER (a) switch this feature to show
-# ALL top-N results unfiltered with visible scores -- no silent
-# hiding, the admin judges relevance themselves -- OR (b) implement
-# and validate a real retrieval-quality fix (hybrid search /
-# re-ranking, tracked separately under this project's "RAG
-# differentiation" backlog item). In ADDITION to either fix, mandatory
-# human legal/engineering review is required regardless of what this
-# tool surfaces -- no RAG system, however accurate, should be the sole
-# reference for a real building-compliance decision. This threshold
-# value (0.45) and this feature's current filtered-display design are
-# acceptable ONLY for a portfolio/demo context, not for production use
-# with real compliance stakes.
-BUILDING_CODE_ADVISORY_THRESHOLD = 0.45
+# HISTORY: this route originally used embeddings only. A reworded query
+# ("Wheelchair Turning Space Near Doors") ranked Article 8.5 (lifts,
+# wrong) above Article 8.2 (correct, score 0.4319), which then fell
+# below the old threshold and never appeared. Hybrid search (BM25 +
+# embeddings via RRF, rag/hybrid_search.py) fixed the ranking;
+# re-tested through the UI, Article 8.2 now ranks first.
+#
+# CAVEAT: 0.40 comes from the same 4 test queries (highest irrelevant
+# 0.3767, lowest relevant 0.4319). Small sample: fine for portfolio/
+# demo use, but it needs a broader test round before any real
+# commercial use, the same standard applied to CONFIDENCE_THRESHOLD.
+BUILDING_CODE_ADVISORY_THRESHOLD = 0.40
 
 
 @admin_bp.route("/proposals")
@@ -256,18 +238,20 @@ def test_proposal_route(proposal_id):
 @role_required(Role.ADMIN.value)
 def check_building_code_route(proposal_id):
     """
-    READ-ONLY, purely advisory: searches the unified Chroma store
-    (audience_role="admin" -- building_code content only, per its
-    schema restriction) for regulation articles related to this
-    proposal's title+description. Returns raw article text, NEVER an
-    LLM-rephrased version -- a compliance-regulation's literal wording
-    is the authoritative reference; rephrasing risks silently altering
-    a precise legal qualifier (an exception clause, a specific number).
+    READ-ONLY, purely advisory: ranks building_code chunks against this
+    proposal's title+description using Hybrid Search (BM25 + embeddings
+    via Reciprocal Rank Fusion, rag/hybrid_search.py). Returns raw
+    article text, NEVER an LLM-rephrased version -- a regulation's
+    literal wording is the authoritative reference; rephrasing risks
+    silently altering a precise legal qualifier.
+
+    RRF decides the ORDER; each result is then kept only if its own
+    embedding_score reaches BUILDING_CODE_ADVISORY_THRESHOLD (see that
+    constant's comment for why rrf_score can't make that decision).
 
     This NEVER blocks or influences Approve/Reject in any way -- it's
-    purely informational for the admin's own judgment, same as the
-    Safe Tester above it. The frontend must visually label this
-    "Advisory only" -- never presented as a compliance verdict.
+    purely informational for the admin's own judgment. The frontend
+    must visually label this "Advisory only".
     """
     proposal = ConditionProposal.query.get_or_404(proposal_id)
 
@@ -279,13 +263,30 @@ def check_building_code_route(proposal_id):
 
     query = f"{title}. {description}".strip()
 
-    results = unified_search(query, top_k=3, audience_role="admin")
-    # audience_role="admin" also returns "all"-scoped content (per
-    # rag/vector_db.py's own $in filter) -- filter down to building_code
-    # specifically here, since this feature is about regulations, not
-    # building_conditions data that happens to also be admin-visible.
-    matches = [r for r in results if r["metadata"].get("source") == "building_code"]
-    matches = [r for r in matches if r["score"] >= BUILDING_CODE_ADVISORY_THRESHOLD]
+    # SECURITY NOTE: this reads building_code chunks straight from the
+    # collection, bypassing the audience_role filter in
+    # rag/vector_db.py::search(), and hybrid_search() does not
+    # role-filter the chunk list it is given (only its embeddings
+    # branch is role-filtered). Access control for this route
+    # therefore rests on @role_required(ADMIN) above, plus
+    # building_code content being admin-scoped. Follow-up option: add
+    # a role-filtered "get chunks by source" helper to vector_db.py
+    # and make hybrid_search's audience_role required.
+    all_chunks = get_collection().get(where={"source": "building_code"})
+    building_code_chunks = [
+        {"id": cid, "text": text, "metadata": meta}
+        for cid, text, meta in zip(all_chunks["ids"], all_chunks["documents"], all_chunks["metadatas"])
+    ]
+
+    if not building_code_chunks:
+        return jsonify({"matches": []})
+
+    results = hybrid_search(query, building_code_chunks, top_k=3, audience_role="admin")
+
+    matches = [
+        r for r in results
+        if r["embedding_score"] is not None and r["embedding_score"] >= BUILDING_CODE_ADVISORY_THRESHOLD
+    ]
 
     return jsonify({
         "matches": [
@@ -294,7 +295,7 @@ def check_building_code_route(proposal_id):
                 "chapter_title": m["metadata"].get("chapter_title"),
                 "title": m["title"],
                 "text": m["text"],
-                "score": round(m["score"], 4),
+                "score": round(m["embedding_score"], 4),
             }
             for m in matches
         ]
